@@ -1,0 +1,734 @@
+{% extends "base.html" %}
+
+{% block title %}智能高光剪辑 - 剪辑管理{% endblock %}
+
+{% block topbar_meta %}剪辑管理{% endblock %}
+
+{% block content %}
+<div class="container">
+  <!-- Statistics Cards -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon">🎬</div>
+      <div class="stat-content">
+        <div class="stat-value" id="totalClips">0</div>
+        <div class="stat-label">总片段数</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">📦</div>
+      <div class="stat-content">
+        <div class="stat-value" id="totalVersions">0</div>
+        <div class="stat-label">生成版本数</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">⏱️</div>
+      <div class="stat-content">
+        <div class="stat-value" id="totalDuration">0</div>
+        <div class="stat-label">总时长(分钟)</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">📊</div>
+      <div class="stat-content">
+        <div class="stat-value" id="avgDuration">0</div>
+        <div class="stat-label">平均时长(秒)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search and Filters -->
+  <div class="filters-section">
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="搜索标题或原因..." />
+      <button onclick="loadClips()" class="btn-search">搜索</button>
+    </div>
+    <div class="filter-controls">
+      <select id="sortBy" onchange="loadClips()">
+        <option value="created_at">按创建时间</option>
+        <option value="duration">按时长</option>
+        <option value="title">按标题</option>
+      </select>
+      <select id="sortOrder" onchange="loadClips()">
+        <option value="desc">降序</option>
+        <option value="asc">升序</option>
+      </select>
+      <button onclick="toggleSelectMode()" class="btn-select" id="selectModeBtn">批量选择</button>
+      <button onclick="bulkDeleteSelected()" class="btn-delete" id="bulkDeleteBtn" style="display: none;">删除选中</button>
+    </div>
+  </div>
+
+  <!-- Clips Table -->
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th class="checkbox-col" style="display: none;"><input type="checkbox" id="selectAll" /></th>
+          <th>ID</th>
+          <th>视频标题</th>
+          <th>片段标题</th>
+          <th>时长</th>
+          <th>时间段</th>
+          <th>版本</th>
+          <th>创建时间</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="clipsTableBody">
+        <tr>
+          <td colspan="9" class="loading-cell">加载中...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  <div class="pagination" id="pagination" style="display: none;">
+    <button onclick="changePage(-1)" class="btn-page">上一页</button>
+    <span id="pageInfo">第 1 页</span>
+    <button onclick="changePage(1)" class="btn-page">下一页</button>
+  </div>
+</div>
+
+<!-- Clip Detail Modal -->
+<div id="clipDetailModal" class="modal" style="display: none;">
+  <div class="modal-content modal-large">
+    <div class="modal-header">
+      <h3>剪辑详情</h3>
+      <button onclick="closeClipDetail()" class="btn-close">&times;</button>
+    </div>
+    <div class="modal-body" id="clipDetailContent">
+      加载中...
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeClipDetail()" class="btn-cancel">关闭</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* Statistics Grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .stat-card {
+    background: linear-gradient(135deg, var(--accent), #667eea);
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: white;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+  }
+
+  .stat-icon {
+    font-size: 32px;
+    opacity: 0.9;
+  }
+
+  .stat-content {
+    flex: 1;
+  }
+
+  .stat-value {
+    font-size: 28px;
+    font-weight: bold;
+    line-height: 1.2;
+  }
+
+  .stat-label {
+    font-size: 13px;
+    opacity: 0.85;
+    margin-top: 4px;
+  }
+
+  /* Filters Section */
+  .filters-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .search-box {
+    display: flex;
+    gap: 8px;
+    flex: 1;
+    min-width: 300px;
+  }
+
+  .search-box input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-panel);
+    color: var(--ink);
+    font-size: 14px;
+  }
+
+  .search-box input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .btn-search {
+    padding: 8px 20px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+
+  .btn-search:hover {
+    background: #5a67d8;
+  }
+
+  .filter-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .filter-controls select {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-panel);
+    color: var(--ink);
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .btn-select,
+  .btn-delete {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 14px;
+    transition: all 0.2s;
+  }
+
+  .btn-select {
+    background: #4a5568;
+    color: white;
+  }
+
+  .btn-select:hover {
+    background: #2d3748;
+  }
+
+  .btn-delete {
+    background: #e53e3e;
+    color: white;
+  }
+
+  .btn-delete:hover {
+    background: #c53030;
+  }
+
+  .btn-delete:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* Table */
+  .table-container {
+    background: var(--bg-panel);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .data-table th {
+    background: rgba(102, 126, 234, 0.1);
+    padding: 12px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--ink);
+    border-bottom: 2px solid var(--border);
+  }
+
+  .data-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--ink-dim);
+  }
+
+  .data-table tbody tr:hover {
+    background: rgba(102, 126, 234, 0.05);
+  }
+
+  .checkbox-col {
+    width: 40px;
+    text-align: center;
+  }
+
+  .loading-cell {
+    text-align: center;
+    padding: 40px;
+    color: var(--ink-dim);
+  }
+
+  /* Modal */
+  .modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .modal-content {
+    background: var(--bg-panel);
+    border-radius: 8px;
+    max-width: 800px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .modal-large {
+    max-width: 900px;
+  }
+
+  .modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .modal-header h3 {
+    margin: 0;
+    color: var(--ink);
+  }
+
+  .btn-close {
+    background: none;
+    border: none;
+    color: var(--ink-dim);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    line-height: 1;
+  }
+
+  .btn-close:hover {
+    color: var(--ink);
+  }
+
+  .modal-body {
+    padding: 20px;
+  }
+
+  .modal-footer {
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .btn-cancel {
+    padding: 8px 20px;
+    background: var(--bg-muted);
+    color: var(--ink);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  .btn-cancel:hover {
+    background: var(--border);
+  }
+
+  /* Clip Detail */
+  .clip-detail-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+  }
+
+  .clip-detail-label {
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .clip-detail-value {
+    color: var(--ink-dim);
+  }
+
+  .clip-quote {
+    background: var(--bg-muted);
+    padding: 12px;
+    border-left: 3px solid var(--accent);
+    margin: 8px 0;
+    font-style: italic;
+  }
+
+  .clip-reason {
+    background: rgba(102, 126, 234, 0.1);
+    padding: 12px;
+    border-left: 3px solid var(--accent);
+    margin: 8px 0;
+  }
+
+  /* Pagination */
+  .pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    margin-top: 20px;
+  }
+
+  .btn-page {
+    padding: 8px 16px;
+    background: var(--bg-panel);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  .btn-page:hover {
+    background: var(--bg-muted);
+  }
+
+  .btn-page:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  #pageInfo {
+    color: var(--ink-dim);
+    font-size: 14px;
+  }
+
+  /* Action Buttons */
+  .action-btns {
+    display: flex;
+    gap: 8px;
+  }
+
+  .btn-action {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+
+  .btn-view {
+    background: #3182ce;
+    color: white;
+  }
+
+  .btn-view:hover {
+    background: #2c5282;
+  }
+
+  .btn-delete-row {
+    background: #e53e3e;
+    color: white;
+  }
+
+  .btn-delete-row:hover {
+    background: #c53030;
+  }
+
+  .selected-row {
+    background: rgba(102, 126, 234, 0.15) !important;
+  }
+</style>
+
+<script>
+  let currentPage = 1;
+  let selectMode = false;
+  let selectedClips = new Set();
+
+  async function loadClips() {
+    const search = document.getElementById('searchInput').value;
+    const sortBy = document.getElementById('sortBy').value;
+    const sortOrder = document.getElementById('sortOrder').value;
+
+    let url = `/api/clips?page=${currentPage}&page_size=20&sort_by=${sortBy}&order=${sortOrder}`;
+    if (search) {
+      url += `&search=${encodeURIComponent(search)}`;
+    }
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to load clips');
+
+      const data = await response.json();
+      renderClips(data.clips);
+      updateStats();
+      updatePagination(data);
+    } catch (error) {
+      console.error('Error loading clips:', error);
+      document.getElementById('clipsTableBody').innerHTML =
+        '<tr><td colspan="9" class="loading-cell">加载失败，请刷新重试</td></tr>';
+    }
+  }
+
+  function renderClips(clips) {
+    const tbody = document.getElementById('clipsTableBody');
+
+    if (clips.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" class="loading-cell">暂无剪辑数据</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = clips.map(clip => `
+      <tr class="${selectedClips.has(clip.id) ? 'selected-row' : ''}">
+        ${selectMode ? `<td class="checkbox-col"><input type="checkbox" class="clip-checkbox" data-id="${clip.id}" ${selectedClips.has(clip.id) ? 'checked' : ''} /></td>` : ''}
+        <td>${clip.id}</td>
+        <td>${escapeHtml(clip.video_title)}</td>
+        <td>${escapeHtml(clip.title)}</td>
+        <td>${clip.duration.toFixed(1)}s</td>
+        <td>${formatTime(clip.start_time)} - ${formatTime(clip.end_time)}</td>
+        <td>v${clip.version_number}</td>
+        <td>${new Date(clip.created_at).toLocaleString('zh-CN')}</td>
+        <td>
+          <div class="action-btns">
+            <button onclick="viewClipDetail(${clip.id})" class="btn-action btn-view">查看</button>
+            <button onclick="deleteClip(${clip.id})" class="btn-action btn-delete-row">删除</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function updateStats() {
+    try {
+      const response = await fetch('/api/clips/stats');
+      if (!response.ok) throw new Error('Failed to load stats');
+
+      const stats = await response.json();
+      document.getElementById('totalClips').textContent = stats.total_clips;
+      document.getElementById('totalVersions').textContent = stats.total_versions;
+      document.getElementById('totalDuration').textContent = (stats.total_duration / 60).toFixed(1);
+      document.getElementById('avgDuration').textContent = stats.avg_duration.toFixed(1);
+    } catch (error) {
+      console.error('Error loading stats:', error);
+    }
+  }
+
+  function updatePagination(data) {
+    const pagination = document.getElementById('pagination');
+    const pageInfo = document.getElementById('pageInfo');
+
+    if (data.total > data.page_size) {
+      pagination.style.display = 'flex';
+      pageInfo.textContent = `第 ${data.page} 页 / 共 ${Math.ceil(data.total / data.page_size)} 页`;
+    } else {
+      pagination.style.display = 'none';
+    }
+  }
+
+  function changePage(delta) {
+    currentPage += delta;
+    if (currentPage < 1) currentPage = 1;
+    loadClips();
+  }
+
+  function toggleSelectMode() {
+    selectMode = !selectMode;
+    selectedClips.clear();
+
+    const selectBtn = document.getElementById('selectModeBtn');
+    const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+
+    if (selectMode) {
+      selectBtn.textContent = '取消选择';
+      bulkDeleteBtn.style.display = 'inline-block';
+    } else {
+      selectBtn.textContent = '批量选择';
+      bulkDeleteBtn.style.display = 'none';
+    }
+
+    loadClips();
+  }
+
+  function viewClipDetail(clipId) {
+    const modal = document.getElementById('clipDetailModal');
+    const content = document.getElementById('clipDetailContent');
+
+    modal.style.display = 'flex';
+    content.innerHTML = '加载中...';
+
+    fetch(`/api/clips/${clipId}`)
+      .then(res => res.json())
+      .then(clip => {
+        content.innerHTML = `
+          <div class="clip-detail-grid">
+            <div class="clip-detail-label">ID:</div>
+            <div class="clip-detail-value">${clip.id}</div>
+
+            <div class="clip-detail-label">视频标题:</div>
+            <div class="clip-detail-value">${escapeHtml(clip.video_title)}</div>
+
+            <div class="clip-detail-label">片段标题:</div>
+            <div class="clip-detail-value">${escapeHtml(clip.title)}</div>
+
+            <div class="clip-detail-label">时长:</div>
+            <div class="clip-detail-value">${clip.duration.toFixed(1)} 秒</div>
+
+            <div class="clip-detail-label">时间段:</div>
+            <div class="clip-detail-value">${formatTime(clip.start_time)} - ${formatTime(clip.end_time)}</div>
+
+            <div class="clip-detail-label">版本:</div>
+            <div class="clip-detail-value">v${clip.version_number}</div>
+
+            <div class="clip-detail-label">创建时间:</div>
+            <div class="clip-detail-value">${new Date(clip.created_at).toLocaleString('zh-CN')}</div>
+
+            ${clip.quote ? `
+              <div class="clip-detail-label">引用:</div>
+              <div class="clip-detail-value">
+                <div class="clip-quote">${escapeHtml(clip.quote)}</div>
+              </div>
+            ` : ''}
+
+            ${clip.reason ? `
+              <div class="clip-detail-label">选择原因:</div>
+              <div class="clip-detail-value">
+                <div class="clip-reason">${escapeHtml(clip.reason)}</div>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      })
+      .catch(err => {
+        content.innerHTML = '<p class="loading-cell">加载失败</p>';
+      });
+  }
+
+  function closeClipDetail() {
+    document.getElementById('clipDetailModal').style.display = 'none';
+  }
+
+  async function deleteClip(clipId) {
+    if (!confirm('确定要删除这个剪辑吗？此操作不可恢复。')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/clips/${clipId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) throw new Error('Failed to delete clip');
+
+      alert('剪辑已删除');
+      loadClips();
+    } catch (error) {
+      console.error('Error deleting clip:', error);
+      alert('删除失败: ' + error.message);
+    }
+  }
+
+  async function bulkDeleteSelected() {
+    if (selectedClips.size === 0) {
+      alert('请先选择要删除的剪辑');
+      return;
+    }
+
+    if (!confirm(`确定要删除选中的 ${selectedClips.size} 个剪辑吗？此操作不可恢复。`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/clips/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clip_ids: Array.from(selectedClips) }),
+      });
+
+      if (!response.ok) throw new Error('Failed to delete clips');
+
+      const result = await response.json();
+      alert(result.message);
+      selectedClips.clear();
+      toggleSelectMode();
+      toggleSelectMode(); // Refresh the view
+    } catch (error) {
+      console.error('Error deleting clips:', error);
+      alert('删除失败: ' + error.message);
+    }
+  }
+
+  function formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // Event listeners for checkboxes
+  document.addEventListener('change', function(e) {
+    if (e.target.classList.contains('clip-checkbox')) {
+      const clipId = parseInt(e.target.dataset.id);
+      if (e.target.checked) {
+        selectedClips.add(clipId);
+      } else {
+        selectedClips.delete(clipId);
+      }
+    } else if (e.target.id === 'selectAll') {
+      const checkboxes = document.querySelectorAll('.clip-checkbox');
+      checkboxes.forEach(cb => {
+        cb.checked = e.target.checked;
+        const clipId = parseInt(cb.dataset.id);
+        if (e.target.checked) {
+          selectedClips.add(clipId);
+        } else {
+          selectedClips.delete(clipId);
+        }
+      });
+    }
+  });
+
+  // Initialize
+  document.addEventListener('DOMContentLoaded', function() {
+    loadClips();
+  });
+</script>
+{% endblock %}

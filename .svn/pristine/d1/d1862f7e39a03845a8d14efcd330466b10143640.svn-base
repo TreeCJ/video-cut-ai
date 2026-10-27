@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}镜头台 · video-cut{% endblock %}</title>
+  <script src="/static/htmx.min.js" defer></script>
+  <style>
+    /* ── 设计基座：暗色"剪辑室" ──────────────────────────────
+       词汇：胶片暗灰面板 + 琥珀 tally 灯 + 等宽时间码。
+       本地工具、零外链：字体走系统栈（中文 PingFang SC 配
+       ui-monospace 时间码），无网络字体依赖。 */
+    :root {
+      --bg: #0e0f11;
+      --bg-deep: #090a0b;
+      --panel: #141518;
+      --panel-raised: #1a1c20;
+      --line: #26282e;
+      --line-soft: #1e2025;
+      --ink: #e8e6e1;
+      --ink-dim: #9a978f;
+      --ink-faint: #5c5a54;
+      --accent: #e8a33d;               /* tally amber */
+      --accent-soft: rgba(232, 163, 61, 0.14);
+      --accent-line: rgba(232, 163, 61, 0.45);
+      --on-accent: #161006;            /* btn-primary 前景：琥珀底上的深字 */
+      --ok: #7fb069;
+      --danger: #d06052;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+      --r: 10px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      font-family: var(--sans);
+      background: radial-gradient(1200px 700px at 50% -12%, #15171c, var(--bg)) fixed;
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    ::selection { background: var(--accent-line); }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code { font-family: var(--mono); font-size: 0.9em; color: var(--ink-dim); }
+    .mono { font-family: var(--mono); }
+    .error { color: var(--danger); }
+
+    /* ── 顶栏 ─────────────────────────────────────────── */
+    .topbar {
+      display: flex; align-items: center; gap: 14px;
+      height: 46px; padding: 0 18px;
+      background: var(--bg-deep);
+      border-bottom: 1px solid var(--line);
+      position: sticky; top: 0; z-index: 50;
+    }
+    .brand {
+      display: flex; align-items: baseline; gap: 8px;
+      font-weight: 700; letter-spacing: 0.02em;
+    }
+    .brand .tally { color: var(--accent); font-size: 1.05em; }
+    .brand small { font-weight: 500; color: var(--ink-faint); letter-spacing: 0.08em; }
+    .topbar .spacer { flex: 1; }
+    .topbar .meta { color: var(--ink-faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* ── 通用控件 ─────────────────────────────────────── */
+    .btn {
+      font-family: var(--sans); font-size: 14px; font-weight: 600;
+      border-radius: 8px; padding: 10px 18px;
+      border: 1px solid var(--line);
+      background: var(--panel-raised); color: var(--ink);
+      cursor: pointer; white-space: nowrap;
+      transition: background .15s, border-color .15s, transform .1s;
+    }
+    .btn:hover { background: #22242a; border-color: #33363d; }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+    .btn-primary:hover { background: #f0b155; border-color: transparent; }
+    .btn-ghost { background: transparent; }
+    .btn[disabled] { opacity: .45; cursor: not-allowed; }
+    .hint { color: var(--ink-faint); font-size: 12px; margin: 9px 0 0; }
+    .hint b { color: var(--ink-dim); font-weight: 600; }
+
+    input[type="text"], textarea {
+      background: var(--bg-deep);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--ink);
+      font-family: var(--sans); font-size: 14px;
+      padding: 11px 13px;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    input[type="text"]:focus, textarea:focus {
+      border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    textarea { resize: vertical; min-height: 74px; width: 100%; }
+    textarea::placeholder, input::placeholder { color: var(--ink-faint); }
+    
+    /* ── Checkbox styling ─────────────────────────────── */
+    .form-group { margin: 12px 0; }
+    .checkbox-label {
+      display: flex; align-items: center; gap: 8px;
+      cursor: pointer; font-size: 13px; color: var(--ink-dim);
+      user-select: none;
+    }
+    .checkbox-label input[type="checkbox"] {
+      width: 16px; height: 16px; cursor: pointer;
+      accent-color: var(--accent);
+    }
+    .checkbox-label span { line-height: 1.4; }
+
+    /* ── 步骤条（pipeline 芯片）───────────────────────── */
+    .step-strip {
+      list-style: none; padding: 0; margin: 14px 0 0;
+      display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+      padding-top: 13px; border-top: 1px dashed var(--line);
+    }
+    .step-item { display: inline-flex; gap: 7px; align-items: center; position: relative; }
+    .step-item .status-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      display: inline-block; flex: none;
+      background: var(--ink-faint);
+    }
+    .step-item .status-dot.status-done { background: var(--ok); }
+    .step-item .status-dot.status-running { background: var(--accent); box-shadow: 0 0 8px var(--accent-line); }
+    .step-item .status-dot.status-failed { background: var(--danger); }
+    .step-item .step-name {
+      font-family: var(--mono); font-size: 11.5px; color: var(--ink-dim);
+      letter-spacing: 0.02em;
+    }
+    .step-item .detail { color: var(--ink-faint); font-size: 11.5px; }
+    .step-item .error-summary {
+      background: rgba(208, 96, 82, 0.09); color: var(--danger);
+      border: 1px solid rgba(208, 96, 82, 0.25);
+      border-radius: 6px;
+      padding: 0.5rem 0.6rem; margin: 4px 0 0;
+      overflow-x: auto; font-size: 0.85em; font-family: var(--mono);
+      white-space: pre-wrap; user-select: all;
+      position: absolute; top: 100%; left: 0; z-index: 5; min-width: 260px;
+    }
+    .step-item details { display: inline-flex; }
+    .step-item details summary {
+      cursor: pointer; list-style: none; font-size: 11.5px;
+      color: var(--ink-faint); border-bottom: 1px dotted var(--ink-faint);
+    }
+    .step-item details summary::-webkit-details-marker { display: none; }
+    .step-item details form {
+      position: absolute; top: 100%; left: 0; z-index: 6;
+      background: var(--panel-raised); border: 1px solid var(--line);
+      border-radius: 8px; padding: 12px; margin-top: 6px;
+      display: flex; flex-direction: column; gap: 8px; width: 300px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    }
+    .step-item details textarea { min-height: 60px; font-size: 13px; }
+    .step-item details .row { display: flex; gap: 8px; }
+    .step-item details .row .btn { flex: 1; padding: 7px 10px; font-size: 12.5px; }
+    .step-controls button[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── 首页视频库 ───────────────────────────────────── */
+    .wrap { max-width: 1060px; margin: 0 auto; padding: 28px 20px 80px; }
+    .library-intro { max-width: 560px; margin: 40px auto 0; }
+    .library-intro h1 { font-size: 24px; margin: 0 0 4px; }
+    .library-intro .sub { color: var(--ink-dim); font-size: 13px; margin: 0 0 18px; }
+    .library-intro form {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--r); padding: 18px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .library-intro label { font-size: 12.5px; color: var(--ink-dim); }
+    .library-intro input[type="text"] { width: 100%; }
+    .library { list-style: none; padding: 0; margin: 34px 0 0; display: grid; gap: 8px; }
+    .library li {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 8px; padding: 13px 16px;
+      transition: border-color .15s, background .15s;
+    }
+    .library li:not(.missing):hover { border-color: #34363c; background: var(--panel-raised); }
+    .library li.missing { color: var(--ink-faint); }
+    .library li a { flex: 1; color: var(--ink); font-weight: 600; }
+    .library li.missing span:first-child { flex: 1; }
+    .library .badge {
+      font-size: 11px; color: var(--ink-faint);
+      border: 1px solid var(--line); border-radius: 5px; padding: 1px 7px;
+    }
+    .library .path { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40%; }
+    .library-empty { color: var(--ink-faint); margin-top: 34px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+    }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="tally">●</span>镜头台 <small>CUT&nbsp;DECK</small></a>
+    <span class="spacer"></span>
+    <span class="meta">{% block topbar_meta %}{% endblock %}</span>
+  </header>
+  {% block content %}{% endblock %}
+</body>
+</html>

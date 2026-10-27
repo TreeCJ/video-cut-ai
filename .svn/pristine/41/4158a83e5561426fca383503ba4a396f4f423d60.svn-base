@@ -1,0 +1,260 @@
+"""Subtitle generation for video clips using transcript data."""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Any
+
+
+def _remove_punctuation(text: str) -> str:
+    """Remove punctuation marks from text.
+    
+    Removes common Chinese and English punctuation: ，。！？、；：""''（）《》【】.,!?;:'"()-
+    """
+    # Remove both Chinese and English punctuation
+    # Build character class without escapes to avoid warnings
+    punct_chars = '，。！？、；：""\'\'（）《》【】.,!?;:\'"()[]{}—…'
+    return re.sub(f'[{re.escape(punct_chars)}]', '', text)
+
+
+def _split_text_into_chunks(text: str, max_length: int = 12) -> list[str]:
+    """Split text into chunks of max_length characters while keeping words intact.
+    
+    For Chinese text, splits by character. For mixed text, tries to keep
+    English words together when possible.
+    
+    Args:
+        text: Text to split
+        max_length: Maximum characters per chunk
+        
+    Returns:
+        List of text chunks, each <= max_length characters
+    """
+    chunks = []
+    current = ""
+    
+    for char in text:
+        if len(current) < max_length:
+            current += char
+        else:
+            if current:
+                chunks.append(current)
+            current = char
+    
+    if current:
+        chunks.append(current)
+    
+    return chunks
+
+
+def generate_srt_from_transcript(
+    transcript_data: dict[str, Any],
+    srt_path: Path,
+    highlight_segments: list[dict[str, float]] | None = None,
+    max_chars_per_line: int = 12,
+) -> None:
+    """Generate SRT subtitle file from transcript data.
+    
+    Args:
+        transcript_data: Transcript with sentences and words
+        srt_path: Output SRT file path
+        highlight_segments: Optional list of {start, end} time ranges to filter subtitles
+        max_chars_per_line: Maximum characters per subtitle line (default: 12)
+    """
+    sentences = transcript_data.get("sentences", [])
+    
+    if not sentences:
+        return
+    
+    # Filter sentences by highlight segments if provided
+    filtered_sentences = []
+    if highlight_segments:
+        for sent in sentences:
+            sent_start = sent["begin_time"]
+            sent_end = sent["end_time"]
+            
+            # Check if sentence overlaps with any highlight segment
+            for seg in highlight_segments:
+                seg_start = seg["start"]
+                seg_end = seg["end"]
+                
+                # Overlap detection
+                if sent_start < seg_end and sent_end > seg_start:
+                    # Adjust timestamps relative to segment start
+                    adjusted_sent = {
+                        **sent,
+                        "begin_time": sent_start - seg_start,
+                        "end_time": sent_end - seg_start,
+                    }
+                    filtered_sentences.append(adjusted_sent)
+                    break
+    else:
+        filtered_sentences = [
+            {**sent, "begin_time": sent["begin_time"], "end_time": sent["end_time"]}
+            for sent in sentences
+        ]
+    
+    # Write SRT file
+    srt_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(srt_path, "w", encoding="utf-8") as f:
+        subtitle_index = 1
+        
+        for sent in filtered_sentences:
+            # Remove punctuation
+            clean_text = _remove_punctuation(sent["text"])
+            
+            if not clean_text:
+                continue
+            
+            # Split into chunks if text is too long
+            chunks = _split_text_into_chunks(clean_text, max_chars_per_line)
+            
+            if not chunks:
+                continue
+            
+            # Calculate time duration for this sentence
+            total_duration = sent["end_time"] - sent["begin_time"]
+            if total_duration <= 0:
+                total_duration = 2.0  # Default 2 seconds
+            
+            # Distribute time across chunks proportionally
+            chunk_duration = total_duration / len(chunks)
+            
+            for chunk_idx, chunk in enumerate(chunks):
+                # Calculate start and end time for this chunk
+                chunk_start = sent["begin_time"] + (chunk_idx * chunk_duration)
+                chunk_end = chunk_start + chunk_duration
+                
+                start_time = _format_srt_time(chunk_start)
+                end_time = _format_srt_time(chunk_end)
+                
+                f.write(f"{subtitle_index}\n")
+                f.write(f"{start_time} --> {end_time}\n")
+                f.write(f"{chunk}\n\n")
+                
+                subtitle_index += 1
+
+
+def _format_srt_time(seconds: float) -> str:
+    """Format seconds to SRT time format (HH:MM:SS,mmm)."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int((seconds % 1) * 1000)
+    
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def burn_subtitles_into_video(
+    video_path: Path,
+    srt_path: Path,
+    output_path: Path,
+    font_size: int = 24,
+    font_color: str = "white",
+    position: str = "bottom",
+) -> None:
+    """Burn subtitles into video using ffmpeg.
+    
+    Args:
+        video_path: Input video file
+        srt_path: SRT subtitle file
+        output_path: Output video with subtitles
+        font_size: Subtitle font size
+        font_color: Subtitle color
+        position: Subtitle position (bottom/top)
+    """
+    # Calculate vertical position
+    if position == "bottom":
+        y_position = "h-50"
+    else:
+        y_position = "50"
+    
+    # Escape special characters in paths for ffmpeg
+    video_path_str = str(video_path).replace("\\", "/").replace(":", "\\:")
+    srt_path_str = str(srt_path).replace("\\", "/").replace(":", "\\:")
+    
+    # Build ffmpeg command with subtitle filter
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i", str(video_path),
+        "-vf", f"subtitles={srt_path_str}:force_style='FontSize={font_size},PrimaryColour=&HFFFFFF&,Outline=1,Shadow=0,Alignment=2,MarginV=20'",
+        "-c:a", "copy",  # Copy audio without re-encoding
+        "-preset", "fast",
+        str(output_path),
+    ]
+    
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
+def add_subtitles_to_clips(
+    clips_dir: Path,
+    transcript_path: Path,
+    highlights_path: Path,
+    subtitled_clips_dir: Path | None = None,
+) -> list[Path]:
+    """Add subtitles to all video clips.
+    
+    Args:
+        clips_dir: Directory containing clip videos
+        transcript_path: Path to transcript.json
+        highlights_path: Path to highlights.json
+        subtitled_clips_dir: Optional output directory for subtitled clips
+        
+    Returns:
+        List of paths to subtitled clip files
+    """
+    import json
+    
+    # Load transcript and highlights
+    with open(transcript_path, encoding="utf-8") as f:
+        transcript_data = json.load(f)
+    
+    with open(highlights_path, encoding="utf-8") as f:
+        highlights_data = json.load(f)
+    
+    # Prepare output directory
+    if subtitled_clips_dir is None:
+        subtitled_clips_dir = clips_dir / "subtitled"
+    subtitled_clips_dir.mkdir(parents=True, exist_ok=True)
+    
+    subtitled_clips = []
+    
+    # Process each clip
+    for i, clip_file in enumerate(sorted(clips_dir.glob("*.mp4")), 1):
+        # Find corresponding highlight
+        highlight = None
+        for h in highlights_data:
+            if h.get("index") == i or f"{i:02d}" in clip_file.stem:
+                highlight = h
+                break
+        
+        if not highlight:
+            continue
+        
+        # Generate SRT for this clip
+        srt_path = subtitled_clips_dir / f"{clip_file.stem}.srt"
+        
+        # Extract time range for this highlight
+        highlight_segment = {
+            "start": highlight.get("start_time", 0),
+            "end": highlight.get("end_time", 0),
+        }
+        
+        generate_srt_from_transcript(
+            transcript_data, 
+            srt_path, 
+            [highlight_segment] if highlight_segment["end"] > 0 else None
+        )
+        
+        # Burn subtitles into video
+        output_path = subtitled_clips_dir / clip_file.name
+        burn_subtitles_into_video(clip_file, srt_path, output_path)
+        
+        subtitled_clips.append(output_path)
+    
+    return subtitled_clips

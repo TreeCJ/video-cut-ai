@@ -1,0 +1,41 @@
+<section class="cut-report" aria-label="对齐报告" id="cut-report">
+  <h2>对齐报告</h2>
+  <p class="hint">未锁定的项会按引用原句重新锚定时间；锁定的项原样采用你的边界。</p>
+  <table>
+    <thead>
+      <tr>
+        <th>标题</th>
+        <th>状态</th>
+        <th>原边界</th>
+        <th>最终边界</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in report.items %}
+      <tr class="{% if item.locked %}locked{% elif item.moved %}moved{% endif %}">
+        <td>{{ item.title }}</td>
+        <td>
+          {% if item.locked %}已锁定（跳过对齐）
+          {% elif item.moved %}已修正
+          {% else %}未变动{% endif %}
+        </td>
+        <td class="mono">{{ "%.2f"|format(item.original_start) }}s – {{ "%.2f"|format(item.original_end) }}s</td>
+        <td class="mono">{{ "%.2f"|format(item.final_start) }}s – {{ "%.2f"|format(item.final_end) }}s</td>
+      </tr>
+      {% if item.warning %}
+      <tr class="warning-row"><td colspan="4">{{ item.warning }}</td></tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+  <form hx-post="/videos/{{ stem }}/cut"
+        hx-target="#cut-report" hx-swap="outerHTML">
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" name="subtitles" value="true">
+        <span>生成并烧录字幕（与高光片段对齐）</span>
+      </label>
+    </div>
+    <button class="btn btn-primary" type="submit" name="confirm" value="true">确认剪切合并</button>
+  </form>
+</section>

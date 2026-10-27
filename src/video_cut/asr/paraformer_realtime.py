@@ -1,0 +1,281 @@
+"""DashScope Paraformer Real-time v2 speech recognition engine.
+
+Uses WebSocket streaming API to transcribe local audio files without
+requiring OSS storage. Audio is sent in chunks directly to the API.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import tempfile
+import wave
+from pathlib import Path
+from typing import Any
+
+import dashscope
+from dashscope.audio.asr import Recognition, RecognitionCallback, RecognitionResult
+from http import HTTPStatus
+
+from video_cut.asr import Sentence, Transcript, Word
+
+
+class TranscriptionFailedError(Exception):
+    """Raised when the ASR transcription fails."""
+
+
+class RealtimeCallback(RecognitionCallback):
+    """Callback handler for real-time recognition results."""
+
+    def __init__(self) -> None:
+        self.sentences: list[dict[str, Any]] = []
+        self.words: list[dict[str, Any]] = []
+        self.error: str | None = None
+
+    def on_open(self) -> None:
+        """Called when WebSocket connection is opened."""
+        pass
+
+    def on_close(self) -> None:
+        """Called when WebSocket connection is closed."""
+        pass
+
+    def on_complete(self) -> None:
+        """Called when recognition is complete."""
+        pass
+
+    def on_error(self, message: str) -> None:
+        """Called when an error occurs."""
+        self.error = message
+
+    def on_event(self, result: RecognitionResult) -> None:
+        """Called when a recognition result is received."""
+        try:
+            # Try to get sentence data, handling SDK compatibility issues
+            sentence = None
+            try:
+                sentence = result.get_sentence()
+            except AttributeError:
+                # SDK bug: ignore headers attribute error
+                # The result still works, just can't convert to string
+                pass
+            
+            if sentence:
+                # Accumulate sentences and words
+                if isinstance(sentence, dict):
+                    self.sentences.append(sentence)
+                    for word in sentence.get("words", []):
+                        self.words.append(word)
+                elif isinstance(sentence, list):
+                    for s in sentence:
+                        self.sentences.append(s)
+                        for word in s.get("words", []):
+                            self.words.append(word)
+        except Exception as e:
+            # Don't let processing errors stop the transcription
+            # We'll check results at the end
+            pass
+
+
+class ParaformerRealtimeEngine:
+    """Engine using DashScope Paraformer Real-time v2 via WebSocket.
+
+    This engine streams audio chunks directly to the API without requiring
+    OSS storage, making it suitable for local development and testing.
+    
+    For non-WAV formats (m4a, mp3), audio is converted to WAV via ffmpeg first.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "paraformer-realtime-v2",
+        sample_rate: int = 16000,
+        language_hints: list[str] | None = None,
+    ) -> None:
+        self._api_key = api_key
+        self._model = model
+        self._sample_rate = sample_rate
+        self._language_hints = language_hints or ["zh", "en"]
+
+        # Set API key globally for dashscope
+        dashscope.api_key = api_key
+
+    def transcribe(self, audio_path: str | Path) -> Transcript:
+        """Transcribe a local audio file using real-time streaming.
+
+        Args:
+            audio_path: Path to the audio file (wav, mp3, m4a, etc.)
+
+        Returns:
+            Transcript object with sentences and word timestamps
+
+        Raises:
+            TranscriptionFailedError: If transcription fails
+        """
+        audio_path = Path(audio_path)
+
+        if not audio_path.exists():
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+
+        # Convert to WAV if needed (real-time API works best with WAV/PCM)
+        wav_path = self._convert_to_wav(audio_path)
+        
+        try:
+            # Create callback handler
+            callback = RealtimeCallback()
+
+            # Create recognition instance
+            recognition = Recognition(
+                model=self._model,
+                format="wav",
+                sample_rate=self._sample_rate,
+                language_hints=self._language_hints,
+                callback=callback,
+            )
+
+            print("Starting real-time recognition...")
+            
+            # For SDK 1.14+, use call() method for non-streaming or 
+            # start/send/stop for streaming
+            # Try the call() method first (simpler, more reliable)
+            result = recognition.call(str(wav_path))
+            
+            print(f"Recognition completed with status: {result.status_code}")
+            
+            # Check result
+            if hasattr(result, 'get_sentence'):
+                sentences = result.get_sentence()
+                if sentences:
+                    if isinstance(sentences, list):
+                        callback.sentences = sentences
+                        # Extract words from sentences
+                        for sent in sentences:
+                            if isinstance(sent, dict):
+                                for word in sent.get("words", []):
+                                    callback.words.append(word)
+                    elif isinstance(sentences, dict):
+                        callback.sentences = [sentences]
+                        for word in sentences.get("words", []):
+                            callback.words.append(word)
+
+            # Check for errors in callback
+            if callback.error:
+                raise TranscriptionFailedError(callback.error)
+
+            # Check if we got any results
+            if not callback.sentences:
+                raise TranscriptionFailedError(
+                    "No transcription results. The audio file may be too short "
+                    "or contain no speech."
+                )
+
+            print(f"Transcription complete: {len(callback.sentences)} sentences")
+            
+            # Build transcript from results
+            return self._build_transcript(callback.sentences, callback.words)
+
+        except TranscriptionFailedError:
+            raise
+        except Exception as e:
+            raise TranscriptionFailedError(f"Transcription failed: {e}") from e
+        finally:
+            # Clean up temporary WAV file
+            if wav_path != audio_path and wav_path.exists():
+                wav_path.unlink()
+
+    def _convert_to_wav(self, audio_path: Path) -> Path:
+        """Convert audio to WAV format for streaming.
+        
+        Uses ffmpeg to convert non-WAV formats to 16kHz mono WAV.
+        Returns the original path if already WAV.
+        """
+        if audio_path.suffix.lower() == ".wav":
+            return audio_path
+        
+        # Create temporary WAV file
+        wav_path = audio_path.with_suffix(".wav")
+        
+        # Use ffmpeg to convert
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i", str(audio_path),
+                "-ac", "1",  # mono
+                "-ar", str(self._sample_rate),  # 16kHz
+                "-acodec", "pcm_s16le",  # 16-bit PCM
+                str(wav_path),
+            ],
+            check=True,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        
+        return wav_path
+
+    def _stream_wav(self, recognition: Recognition, wav_path: Path) -> None:
+        """Stream WAV audio file to the recognition service."""
+        chunk_frames = 1600  # ~100ms at 16kHz
+        
+        with wave.open(str(wav_path), "rb") as wav_file:
+            # Verify WAV parameters
+            n_channels = wav_file.getnchannels()
+            framerate = wav_file.getframerate()
+
+            if framerate != self._sample_rate:
+                raise ValueError(
+                    f"Expected sample rate {self._sample_rate}, got {framerate}"
+                )
+
+            if n_channels != 1:
+                raise ValueError(
+                    f"Expected mono audio, got {n_channels} channels"
+                )
+
+            # Read and send chunks
+            while True:
+                frames = wav_file.readframes(chunk_frames)
+                if not frames:
+                    break
+                recognition.send_audio_frame(frames)
+
+    def _build_transcript(
+        self,
+        sentences_data: list[dict[str, Any]],
+        words_data: list[dict[str, Any]],
+    ) -> Transcript:
+        """Build Transcript object from recognition results."""
+        sentences = []
+        words = []
+
+        # Process sentences
+        for sent_data in sentences_data:
+            begin_time = sent_data.get("begin_time", 0) / 1000.0  # ms to seconds
+            end_time = sent_data.get("end_time", 0) / 1000.0
+            text = sent_data.get("text", "")
+
+            sentences.append(
+                Sentence(
+                    begin_time=begin_time,
+                    end_time=end_time,
+                    text=text,
+                )
+            )
+
+        # Process words
+        for word_data in words_data:
+            begin_time = word_data.get("begin_time", 0) / 1000.0
+            end_time = word_data.get("end_time", 0) / 1000.0
+            # Real-time API uses "text" field instead of "word"
+            word_text = word_data.get("text", "")
+
+            words.append(
+                Word(
+                    begin_time=begin_time,
+                    end_time=end_time,
+                    word=word_text,
+                )
+            )
+
+        return Transcript(sentences=tuple(sentences), words=tuple(words))

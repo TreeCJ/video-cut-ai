@@ -1,0 +1,293 @@
+<section class="highlights" aria-label="高光序列" id="highlight-cards">
+  <div class="seq-head">
+    <h2>高光序列</h2>
+    <span class="budget">总时长 <b>{{ "%.1f"|format(total_duration) }}s</b> / 预算 {{ "%.0f"|format(duration_budget) }}s</span>
+  </div>
+  <ol class="cards" id="highlight-card-list" data-stem="{{ stem }}"
+      data-video-duration="{{ video_duration or 0 }}">
+    {% for highlight in highlights %}
+    <li class="highlight-card{% if highlight.locked %} locked{% endif %}"
+        id="highlight-card-{{ loop.index0 }}"
+        data-index="{{ loop.index0 }}"
+        data-start="{{ highlight.start }}"
+        data-end="{{ highlight.end }}">
+      <div class="idx"><span class="idx-chip">{{ "%02d"|format(loop.index) }}</span></div>
+      <div class="clip-title">{{ highlight.title }}
+        {% if highlight.locked %}<span class="lock-badge">已锁定</span>{% endif %}
+      </div>
+      <div class="card-actions">
+        <button type="button" class="preview">▶ 预览</button>
+        <button type="button" class="apply-boundaries">应用边界</button>
+        <button type="button" class="move-up" aria-label="上移"
+                {% if loop.first %}disabled{% endif %}>↑</button>
+        <button type="button" class="move-down" aria-label="下移"
+                {% if loop.last %}disabled{% endif %}>↓</button>
+        <button type="button" class="delete">✕</button>
+      </div>
+      <p class="reason">{{ highlight.reason }}</p>
+      <p class="time-range">
+        <span class="bound"><span class="k">IN</span>
+          <button type="button" class="nudge dec" data-bound="start" aria-label="起点减">−</button>
+          <span class="start-label mono">{{ "%.3f"|format(highlight.start) }}s</span>
+          <button type="button" class="nudge inc" data-bound="start" aria-label="起点加">+</button>
+        </span>
+        <span class="bound"><span class="k">OUT</span>
+          <button type="button" class="nudge dec" data-bound="end" aria-label="终点减">−</button>
+          <span class="end-label mono">{{ "%.3f"|format(highlight.end) }}s</span>
+          <button type="button" class="nudge inc" data-bound="end" aria-label="终点加">+</button>
+        </span>
+        <span class="duration mono">{{ "%.1f"|format(highlight.duration) }}s</span>
+      </p>
+      <div class="hs" role="group" aria-label="边界调整">
+        <div class="rail"></div>
+        <div class="sel"></div>
+        {#- 统一刻度 [0, 视频总长]：两滑块屏幕位置 = 真实时间轴位置，
+            左边滑块必是 IN；数值约束钳制改由 JS 完成，不互相改刻度。-#}
+        <input type="range" class="slider-start" aria-label="起点（IN）"
+               min="0" max="{{ slider_max }}" step="0.001"
+               value="{{ highlight.start }}">
+        <input type="range" class="slider-end" aria-label="终点（OUT）"
+               min="0" max="{{ slider_max }}" step="0.001"
+               value="{{ highlight.end }}">
+        <span class="hs-hint preview-hotkeys">播放中 I 设起点 / O 设终点</span>
+      </div>
+    </li>
+    {% endfor %}
+  </ol>
+</section>
+<script>
+(function () {
+  const list = document.getElementById("highlight-card-list");
+  if (!list) return;
+  const stem = list.dataset.stem;
+
+  function postForm(url, fields) {
+    const body = new URLSearchParams(fields);
+    return fetch(url, {
+      method: "POST",
+      headers: {"Content-Type": "application/x-www-form-urlencoded"},
+      body: body,
+    }).then((response) => {
+      if (response.ok) return response.text().then(swapCards);
+      return response.text().then((message) => alert(message || "操作失败"));
+    });
+  }
+
+  function swapCards(html) {
+    const section = document.getElementById("highlight-cards");
+    if (!section) return;
+    const replacement = document.createElement("div");
+    replacement.innerHTML = html;
+    const fresh = replacement.querySelector("#highlight-cards");
+    if (fresh) section.replaceWith(fresh);
+    wire();
+    // 新卡片渲染后，胶片条上的高光块分布也变了，重画。
+    document.dispatchEvent(new CustomEvent("highlights:changed", {
+      detail: collectRanges(),
+    }));
+  }
+
+  function collectRanges() {
+    // 把当前 DOM 上的卡片边界收集给胶片条（detail 页脚本监听）。
+    return Array.from(document.querySelectorAll(".highlight-card")).map((card) => ({
+      index: card.dataset.index,
+      start: parseFloat(card.dataset.start),
+      end: parseFloat(card.dataset.end),
+      title: card.querySelector(".clip-title").textContent.trim(),
+    }));
+  }
+
+  function wire() {
+    // 预览播放状态：一次只预览一张卡片；swap 后引用失效则惰性重取。
+    let previewing = null; // {card, end}
+
+    function sourceVideo() {
+      return document.getElementById("source-video");
+    }
+
+    function stopPreview() {
+      const video = sourceVideo();
+      if (video) video.removeEventListener("timeupdate", onTimeUpdate);
+      previewing = null;
+    }
+
+    function onTimeUpdate() {
+      const video = sourceVideo();
+      if (!video || !previewing) return;
+      if (!document.contains(previewing.card)) {
+        stopPreview();
+        return;
+      }
+      if (video.currentTime >= previewing.end) {
+        video.pause();
+        stopPreview();
+      }
+    }
+
+    // 每次 swap 后 wire() 重跑：先摘掉旧的 document 级监听，避免堆积。
+    const section = document.getElementById("highlight-cards");
+    if (section._previewKeyHandler) {
+      document.removeEventListener("keydown", section._previewKeyHandler);
+    }
+    const keyHandler = (event) => {
+      if (!previewing) return;
+      if (!document.contains(previewing.card)) {
+        stopPreview();
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key !== "i" && key !== "o") return;
+      if (event.target.matches("input, textarea, select")) return;
+      const video = sourceVideo();
+      if (!video) return;
+      event.preventDefault();
+      const card = previewing.card;
+      const index = card.dataset.index;
+      const position = video.currentTime;
+      // I/O 打点：当前播放位置写入该卡 start/end（走统一边界端点）。
+      const fields =
+        key === "i"
+          ? {start: position.toFixed(3), end: card.dataset.end}
+          : {start: card.dataset.start, end: position.toFixed(3)};
+      postForm("/videos/" + stem + "/highlights/" + index + "/boundaries", fields);
+    };
+    section._previewKeyHandler = keyHandler;
+    document.addEventListener("keydown", keyHandler);
+
+    document.querySelectorAll(".highlight-card").forEach((card) => {
+      const index = parseInt(card.dataset.index, 10);
+      const startSlider = card.querySelector(".slider-start");
+      const endSlider = card.querySelector(".slider-end");
+      const startLabel = card.querySelector(".start-label");
+      const endLabel = card.querySelector(".end-label");
+      const durationLabel = card.querySelector(".duration");
+
+      function timelineTotal() {
+        // 总时长来源：卡片列表自身的 data 属性（HTMX swap 后仍随卡片走），
+        // 旧页面结构则回退到 .wrap。避免从 body 读取（不存在，恒 0）。
+        const own = parseFloat(list.dataset.videoDuration || "0");
+        if (own) return own;
+        const wrap = document.querySelector(".wrap");
+        return parseFloat((wrap && wrap.dataset.videoDuration) || "0");
+      }
+
+      function refreshSelection() {
+        // 琥珀色选段 = 该卡在整片时间轴上的投影；总长未知则不画。
+        const total = timelineTotal();
+        if (!total) return;
+        const sel = card.querySelector(".sel");
+        const start = parseFloat(startSlider.value);
+        const end = parseFloat(endSlider.value);
+        sel.style.left = (start / total * 100).toFixed(3) + "%";
+        sel.style.width = Math.max(0, (end - start) / total * 100).toFixed(3) + "%";
+      }
+
+      function refresh(slider) {
+        // 数值钳制（不改 min/max——改刻度会让另一滑块屏幕位置漂移）：
+        // IN 不许超过 OUT，OUT 不许小于 IN。
+        if (slider === startSlider) {
+          const end = parseFloat(endSlider.value);
+          if (parseFloat(startSlider.value) > end) startSlider.value = end;
+        } else {
+          const start = parseFloat(startSlider.value);
+          if (parseFloat(endSlider.value) < start) endSlider.value = start;
+        }
+        const start = parseFloat(startSlider.value);
+        const end = parseFloat(endSlider.value);
+        startLabel.textContent = start.toFixed(3) + "s";
+        endLabel.textContent = end.toFixed(3) + "s";
+        durationLabel.textContent = (end - start).toFixed(3) + "s";
+        refreshSelection();
+        // 拖滑杆实时 seek 预览：跟随被拖的那条边界；只 seek 不播放。
+        const video = sourceVideo();
+        if (video && slider) {
+          video.currentTime = parseFloat(slider.value);
+        }
+      }
+      startSlider.addEventListener("input", () => refresh(startSlider));
+      endSlider.addEventListener("input", () => refresh(endSlider));
+      refreshSelection();
+
+      // 毫秒微调：修饰键换档（无修饰 10ms / Shift 100ms / Alt 1ms），
+      // 步进按钮与方向键共用一套；改动只在本地 + seek，点“应用边界”统一提交。
+      const NUDGE_STEP_MS = 10;
+      function nudgeStepSeconds(event) {
+        if (event.shiftKey) return 0.1;
+        if (event.altKey) return 0.001;
+        return NUDGE_STEP_MS / 1000;
+      }
+      function nudge(bound, delta) {
+        const slider = bound === "start" ? startSlider : endSlider;
+        const target = parseFloat(slider.value) + delta;
+        slider.value = Math.min(slider.max, Math.max(slider.min, target));
+        refresh(slider);
+      }
+      card.querySelectorAll(".nudge").forEach((button) => {
+        function act(event) {
+          const step = nudgeStepSeconds(event);
+          nudge(button.dataset.bound, button.classList.contains("inc") ? step : -step);
+        }
+        button.addEventListener("click", act);
+        // 焦点落在步进按钮上时，←/→ 同样触发该按钮的减/加。
+        button.addEventListener("keydown", (event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          if (event.key === "ArrowRight" !== button.classList.contains("inc")) return;
+          act(event);
+        });
+      });
+      // 滑块上拦截原生方向键（step=0.001 时原生即 1ms，行为割裂），
+      // 统一走修饰键档位；← 减 → 加，调的是该滑块自己的那条边界。
+      [startSlider, endSlider].forEach((slider) => {
+        slider.addEventListener("keydown", (event) => {
+          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+          event.preventDefault();
+          const step = nudgeStepSeconds(event);
+          const bound = slider === startSlider ? "start" : "end";
+          nudge(bound, event.key === "ArrowRight" ? step : -step);
+        });
+      });
+
+      card.querySelector(".apply-boundaries").addEventListener("click", () => {
+        postForm("/videos/" + stem + "/highlights/" + index + "/boundaries", {
+          start: startSlider.value,
+          end: endSlider.value,
+        });
+      });
+      // 预览：读卡片当前的 draft 边界（data-*），seek 播放并在 end 自动暂停。
+      card.querySelector(".preview").addEventListener("click", () => {
+        const video = sourceVideo();
+        if (!video) return;
+        stopPreview();
+        previewing = {card: card, end: parseFloat(card.dataset.end)};
+        video.addEventListener("timeupdate", onTimeUpdate);
+        video.currentTime = parseFloat(card.dataset.start);
+        video.play();
+      });
+      card.querySelector(".delete").addEventListener("click", () => {
+        if (!confirm("删除该高光？")) return;
+        postForm("/videos/" + stem + "/highlights/" + index + "/delete", {});
+      });
+      const up = card.querySelector(".move-up");
+      const down = card.querySelector(".move-down");
+      function move(from, to) {
+        const order = Array.from(
+          document.querySelectorAll(".highlight-card")
+        ).map((item) => item.dataset.index);
+        const moved = order.splice(from, 1)[0];
+        order.splice(to, 0, moved);
+        const fields = order.map((value) => ["order", value]);
+        postForm("/videos/" + stem + "/highlights/reorder", fields);
+      }
+      if (up) up.addEventListener("click", () => move(index, index - 1));
+      if (down) down.addEventListener("click", () => move(index, index + 1));
+    });
+  }
+
+  wire();
+  // 首次渲染也喂一次胶片条。
+  document.dispatchEvent(new CustomEvent("highlights:changed", {
+    detail: collectRanges(),
+  }));
+})();
+</script>

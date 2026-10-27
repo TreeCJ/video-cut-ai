@@ -1,0 +1,664 @@
+{% extends "base.html" %}
+
+{% block title %}智能高光剪辑 - 视频任务管理{% endblock %}
+
+{% block topbar_meta %}视频任务管理{% endblock %}
+
+{% block content %}
+<div class="container">
+  <!-- Statistics Cards -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-icon">🎬</div>
+      <div class="stat-content">
+        <div class="stat-value" id="totalVideos">0</div>
+        <div class="stat-label">视频任务数</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">📦</div>
+      <div class="stat-content">
+        <div class="stat-value" id="totalVersions">0</div>
+        <div class="stat-label">生成版本数</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">✂️</div>
+      <div class="stat-content">
+        <div class="stat-value" id="totalClips">0</div>
+        <div class="stat-label">剪辑片段数</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">⏱️</div>
+      <div class="stat-content">
+        <div class="stat-value" id="totalDuration">0</div>
+        <div class="stat-label">总时长(分钟)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Search -->
+  <div class="filters-section">
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="搜索视频文件名..." />
+      <button onclick="loadVideoTasks()" class="btn-search">搜索</button>
+    </div>
+  </div>
+
+  <!-- Video Tasks Table -->
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>视频文件名</th>
+          <th>时长</th>
+          <th>文件大小</th>
+          <th>版本数</th>
+          <th>状态</th>
+          <th>创建时间</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="videoTasksTableBody">
+        <tr>
+          <td colspan="8" class="loading-cell">加载中...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  <div class="pagination" id="pagination" style="display: none;">
+    <button onclick="changePage(-1)" class="btn-page">上一页</button>
+    <span id="pageInfo">第 1 页</span>
+    <button onclick="changePage(1)" class="btn-page">下一页</button>
+  </div>
+</div>
+
+<style>
+  /* Statistics Grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .stat-card {
+    background: #2d3748;
+    border-radius: 8px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    color: #e2e8f0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    border: 1px solid #4a5568;
+  }
+
+  .stat-icon {
+    font-size: 32px;
+    opacity: 0.8;
+  }
+
+  .stat-content {
+    flex: 1;
+  }
+
+  .stat-value {
+    font-size: 28px;
+    font-weight: bold;
+    line-height: 1.2;
+    color: #f7fafc;
+  }
+
+  .stat-label {
+    font-size: 13px;
+    opacity: 0.7;
+    margin-top: 4px;
+    color: #a0aec0;
+  }
+
+  /* Filters Section */
+  .filters-section {
+    margin-bottom: 20px;
+  }
+
+  .search-box {
+    display: flex;
+    gap: 8px;
+    max-width: 500px;
+  }
+
+  .search-box input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-panel);
+    color: var(--ink);
+    font-size: 14px;
+  }
+
+  .search-box input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .btn-search {
+    padding: 8px 20px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+
+  .btn-search:hover {
+    background: #5a67d8;
+  }
+
+  /* Table */
+  .table-container {
+    background: var(--bg-panel);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .data-table th {
+    background: rgba(102, 126, 234, 0.1);
+    padding: 12px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--ink);
+    border-bottom: 2px solid var(--border);
+  }
+
+  .data-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    color: var(--ink-dim);
+  }
+
+  .data-table tbody tr:hover {
+    background: rgba(102, 126, 234, 0.05);
+    cursor: pointer;
+  }
+
+  .loading-cell {
+    text-align: center;
+    padding: 40px;
+    color: var(--ink-dim);
+  }
+
+  /* Action Buttons */
+  .action-btns {
+    display: flex;
+    gap: 8px;
+  }
+
+  .btn-action {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+
+  .btn-view {
+    background: #3182ce;
+    color: white;
+  }
+
+  .btn-view:hover {
+    background: #2c5282;
+  }
+
+  .btn-delete-row {
+    background: #e53e3e;
+    color: white;
+  }
+
+  .btn-delete-row:hover {
+    background: #c53030;
+  }
+
+  /* Status Badge */
+  .status-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .status-ready {
+    background: #48bb78;
+    color: white;
+  }
+
+  .status-processing {
+    background: #ed8936;
+    color: white;
+  }
+
+  .status-failed {
+    background: #f56565;
+    color: white;
+  }
+
+  /* Pagination */
+  .pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    margin-top: 20px;
+  }
+
+  .btn-page {
+    padding: 8px 16px;
+    background: var(--bg-panel);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+
+  .btn-page:hover {
+    background: var(--bg-muted);
+  }
+
+  .btn-page:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  #pageInfo {
+    color: var(--ink-dim);
+    font-size: 14px;
+  }
+</style>
+
+<script>
+  let currentPage = 1;
+
+  async function loadVideoTasks() {
+    const search = document.getElementById('searchInput').value;
+    
+    let url = `/api/video-tasks?page=${currentPage}&page_size=20`;
+    if (search) {
+      url += `&search=${encodeURIComponent(search)}`;
+    }
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to load video tasks');
+
+      const data = await response.json();
+      renderVideoTasks(data.videos);
+      updateStats();
+      updatePagination(data);
+    } catch (error) {
+      console.error('Error loading video tasks:', error);
+      document.getElementById('videoTasksTableBody').innerHTML =
+        '<tr><td colspan="8" class="loading-cell">加载失败，请刷新重试</td></tr>';
+    }
+  }
+
+  function renderVideoTasks(videos) {
+    const tbody = document.getElementById('videoTasksTableBody');
+
+    if (videos.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" class="loading-cell">暂无视频任务</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = videos.map(video => `
+      <tr onclick="viewVideoDetail(${video.id})">
+        <td>${video.id}</td>
+        <td>${escapeHtml(video.original_filename)}</td>
+        <td>${video.duration ? formatDuration(video.duration) : '-'}</td>
+        <td>${video.file_size ? formatFileSize(video.file_size) : '-'}</td>
+        <td>${video.total_versions}</td>
+        <td><span class="status-badge status-${video.status}">${getStatusText(video.status)}</span></td>
+        <td>${new Date(video.created_at).toLocaleString('zh-CN')}</td>
+        <td>
+          <div class="action-btns" onclick="event.stopPropagation()">
+            <button onclick="viewVideoDetail(${video.id})" class="btn-action btn-view">查看</button>
+            <button onclick="deleteVideoTask(${video.id}, '${escapeHtml(video.original_filename)}')" class="btn-action btn-delete-row">删除</button>
+          </div>
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  async function updateStats() {
+    try {
+      const response = await fetch('/api/video-tasks/stats');
+      if (!response.ok) throw new Error('Failed to load stats');
+
+      const stats = await response.json();
+      document.getElementById('totalVideos').textContent = stats.total_videos;
+      document.getElementById('totalVersions').textContent = stats.total_versions;
+      document.getElementById('totalClips').textContent = stats.total_clips;
+      document.getElementById('totalDuration').textContent = (stats.total_duration / 60).toFixed(1);
+    } catch (error) {
+      console.error('Error loading stats:', error);
+    }
+  }
+
+  function updatePagination(data) {
+    const pagination = document.getElementById('pagination');
+    const pageInfo = document.getElementById('pageInfo');
+
+    if (data.total > data.page_size) {
+      pagination.style.display = 'flex';
+      pageInfo.textContent = `第 ${data.page} 页 / 共 ${Math.ceil(data.total / data.page_size)} 页`;
+    } else {
+      pagination.style.display = 'none';
+    }
+  }
+
+  function changePage(delta) {
+    currentPage += delta;
+    if (currentPage < 1) currentPage = 1;
+    loadVideoTasks();
+  }
+
+  function viewVideoDetail(videoId) {
+    window.location.href = `/video-tasks/${videoId}`;
+  }
+
+  async function deleteVideoTask(videoId, filename) {
+    showConfirmModal(
+      '确认删除',
+      `确定要删除视频任务 "${filename}" 吗？<br><br>这将删除所有相关的版本和剪辑文件，此操作不可恢复。`,
+      async () => {
+        try {
+          const response = await fetch(`/api/video-tasks/${videoId}`, {
+            method: 'DELETE',
+          });
+
+          if (!response.ok) throw new Error('Failed to delete video task');
+
+          showSuccessMessage('视频任务已删除');
+          loadVideoTasks();
+        } catch (error) {
+          console.error('Error deleting video task:', error);
+          showErrorMessage('删除失败: ' + error.message);
+        }
+      }
+    );
+  }
+
+  // Custom modal functions
+  function showConfirmModal(title, message, onConfirm) {
+    const modal = document.getElementById('confirmModal');
+    const modalTitle = document.getElementById('confirmModalTitle');
+    const modalMessage = document.getElementById('confirmModalMessage');
+    
+    modalTitle.textContent = title;
+    modalMessage.innerHTML = message;
+    modal.style.display = 'flex';
+    
+    // Set up confirm button
+    document.getElementById('confirmBtn').onclick = async () => {
+      closeModal();
+      await onConfirm();
+    };
+    
+    // Cancel button closes modal
+    document.getElementById('cancelBtn').onclick = closeModal;
+  }
+
+  function closeModal() {
+    document.getElementById('confirmModal').style.display = 'none';
+  }
+
+  function showSuccessMessage(message) {
+    // Simple toast notification
+    showToast(message, 'success');
+  }
+
+  function showErrorMessage(message) {
+    showToast(message, 'error');
+  }
+
+  function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    toast.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 12px 20px;
+      border-radius: 6px;
+      color: white;
+      font-weight: 500;
+      z-index: 10000;
+      animation: slideIn 0.3s ease-out;
+      ${type === 'success' ? 'background: #48bb78;' : 'background: #f56565;'}
+    `;
+    
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+      toast.style.animation = 'slideOut 0.3s ease-out';
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
+  }
+
+  // Add CSS animations
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    
+    @keyframes slideOut {
+      from {
+        transform: translateX(0);
+        opacity: 1;
+      }
+      to {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+
+  function formatDuration(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  function formatFileSize(bytes) {
+    if (!bytes) return '-';
+    const gb = bytes / (1024 * 1024 * 1024);
+    if (gb >= 1) return `${gb.toFixed(2)} GB`;
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(2)} MB`;
+  }
+
+  function getStatusText(status) {
+    const statusMap = {
+      'uploaded': '已上传',
+      'processing': '处理中',
+      'ready': '就绪',
+      'failed': '失败'
+    };
+    return statusMap[status] || status;
+  }
+
+  function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // Initialize
+  document.addEventListener('DOMContentLoaded', function() {
+    loadVideoTasks();
+  });
+</script>
+
+<!-- Confirmation Modal -->
+<div id="confirmModal" class="modal" style="display: none;">
+  <div class="modal-content" style="max-width: 500px;">
+    <div class="modal-header">
+      <h3 id="confirmModalTitle">确认操作</h3>
+      <button onclick="closeModal()" class="btn-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="confirmModalMessage"></p>
+    </div>
+    <div class="modal-footer">
+      <button id="cancelBtn" class="btn-cancel">取消</button>
+      <button id="confirmBtn" class="btn-confirm">确认</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* Modal Styles */
+  .modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+  }
+
+  .modal-content {
+    background: #1a1d23;
+    border: 1px solid #2d3748;
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+    animation: modalSlideIn 0.3s ease-out;
+    max-width: 90%;
+  }
+
+  @keyframes modalSlideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-50px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .modal-header {
+    padding: 16px 20px;
+    border-bottom: 2px solid #2d3748;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #252830;
+  }
+
+  .modal-header h3 {
+    margin: 0;
+    color: #e2e8f0;
+    font-size: 18px;
+  }
+
+  .btn-close {
+    background: none;
+    border: none;
+    color: var(--ink-dim);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    line-height: 1;
+    transition: color 0.2s;
+  }
+
+  .btn-close:hover {
+    color: var(--ink);
+  }
+
+  .modal-body {
+    padding: 24px 20px;
+    color: #e2e8f0;
+    line-height: 1.6;
+    background: #1a1d23;
+  }
+
+  .modal-body p {
+    margin: 0;
+  }
+
+  .modal-footer {
+    padding: 16px 20px;
+    border-top: 2px solid #2d3748;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    background: #252830;
+  }
+
+  .btn-cancel,
+  .btn-confirm {
+    padding: 8px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 14px;
+    transition: all 0.2s;
+  }
+
+  .btn-cancel {
+    background: var(--bg-muted);
+    color: var(--ink);
+  }
+
+  .btn-cancel:hover {
+    background: var(--border);
+  }
+
+  .btn-confirm {
+    background: #e53e3e;
+    color: white;
+  }
+
+  .btn-confirm:hover {
+    background: #c53030;
+  }
+</style>
+{% endblock %}

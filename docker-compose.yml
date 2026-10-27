@@ -1,0 +1,173 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # MySQL Database
+  # ============================================================================
+  mysql:
+    image: mysql:8.0
+    container_name: video-cut-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-ChangeMe123!}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-video_cut}
+      MYSQL_USER: ${MYSQL_USER:-videocut}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ChangeMe123!}
+    ports:
+      - "${MYSQL_PORT:-3310}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./deploy/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - video-cut-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-ChangeMe123!}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+  # ============================================================================
+  # Redis Cache (Optional - for future use)
+  # ============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: video-cut-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-ChangeMe123!}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - video-cut-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-ChangeMe123!}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+
+  # ============================================================================
+  # Application
+  # ============================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: video-cut-app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Database
+      VIDEO_CUT_DATABASE_URL: mysql+pymysql://${MYSQL_USER:-videocut}:${MYSQL_PASSWORD:-ChangeMe123!}@mysql:3306/${MYSQL_DATABASE:-video_cut}
+
+      # JWT Configuration
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+
+      # DashScope API
+      VIDEO_CUT_DASHSCOPE_API_KEY: ${VIDEO_CUT_DASHSCOPE_API_KEY}
+      VIDEO_CUT_ASR_MODEL: ${VIDEO_CUT_ASR_MODEL:-paraformer-realtime-v2}
+      VIDEO_CUT_LLM_MODEL: ${VIDEO_CUT_LLM_MODEL:-qwen-plus}
+
+      # Application
+      PYTHONPATH: /app/src
+    ports:
+      - "${APP_PORT:-8462}:8462"
+    volumes:
+      # Persist uploaded videos and generated clips
+      - app_data:/app/data
+      - app_output:/app/output
+      # Logs
+      - app_logs:/app/logs
+    networks:
+      - video-cut-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8462/auth/me"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
+
+  # ============================================================================
+  # Nginx Reverse Proxy (Optional - for production with HTTPS)
+  # ============================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: video-cut-nginx
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+    networks:
+      - video-cut-network
+    profiles:
+      - production
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+
+# ============================================================================
+# Volumes
+# ============================================================================
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+  app_data:
+    driver: local
+  app_output:
+    driver: local
+  app_logs:
+    driver: local
+  nginx_logs:
+    driver: local
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  video-cut-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

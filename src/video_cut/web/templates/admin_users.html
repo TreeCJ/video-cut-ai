@@ -1,0 +1,418 @@
+{% extends "base.html" %}
+
+{% block title %}用户管理 · video-cut{% endblock %}
+
+{% block topbar_meta %}管理员面板{% endblock %}
+
+{% block content %}
+<div style="max-width: 1200px; margin: 0 auto; padding: 28px 20px;">
+  <!-- Header -->
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <div>
+      <h1 style="margin: 0 0 8px; font-size: 24px;">用户管理</h1>
+      <p style="color: var(--ink-dim); margin: 0; font-size: 13px;">管理系统用户账户和权限</p>
+    </div>
+    <button id="createUserBtn" class="btn btn-primary">+ 创建新用户</button>
+  </div>
+
+  <!-- Statistics Cards -->
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
+    <div style="background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px;">
+      <div style="font-size: 12px; color: var(--ink-faint); margin-bottom: 8px;">总用户数</div>
+      <div style="font-size: 28px; font-weight: 700;" id="totalUsers">-</div>
+    </div>
+    <div style="background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px;">
+      <div style="font-size: 12px; color: var(--ink-faint); margin-bottom: 8px;">活跃用户</div>
+      <div style="font-size: 28px; font-weight: 700; color: var(--ok);" id="activeUsers">-</div>
+    </div>
+    <div style="background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px;">
+      <div style="font-size: 12px; color: var(--ink-faint); margin-bottom: 8px;">管理员</div>
+      <div style="font-size: 28px; font-weight: 700; color: var(--accent);" id="adminUsers">-</div>
+    </div>
+    <div style="background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px;">
+      <div style="font-size: 12px; color: var(--ink-faint); margin-bottom: 8px;">非活跃用户</div>
+      <div style="font-size: 28px; font-weight: 700; color: var(--danger);" id="inactiveUsers">-</div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div style="background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; margin-bottom: 16px;">
+    <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+      <input type="text" id="searchInput" placeholder="搜索用户名或邮箱..." style="flex: 1; min-width: 200px;">
+      <select id="roleFilter" style="background: var(--bg-deep); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); padding: 11px 13px;">
+        <option value="">所有角色</option>
+        <option value="admin">管理员</option>
+        <option value="editor">编辑者</option>
+        <option value="viewer">查看者</option>
+      </select>
+      <select id="statusFilter" style="background: var(--bg-deep); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); padding: 11px 13px;">
+        <option value="">所有状态</option>
+        <option value="active">活跃</option>
+        <option value="inactive">非活跃</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Users Table -->
+  <div style="background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <thead style="background: var(--bg-deep); border-bottom: 1px solid var(--line);">
+        <tr>
+          <th style="padding: 12px 16px; text-align: left; font-size: 13px; color: var(--ink-dim); font-weight: 600;">ID</th>
+          <th style="padding: 12px 16px; text-align: left; font-size: 13px; color: var(--ink-dim); font-weight: 600;">用户名</th>
+          <th style="padding: 12px 16px; text-align: left; font-size: 13px; color: var(--ink-dim); font-weight: 600;">邮箱</th>
+          <th style="padding: 12px 16px; text-align: left; font-size: 13px; color: var(--ink-dim); font-weight: 600;">角色</th>
+          <th style="padding: 12px 16px; text-align: left; font-size: 13px; color: var(--ink-dim); font-weight: 600;">状态</th>
+          <th style="padding: 12px 16px; text-align: left; font-size: 13px; color: var(--ink-dim); font-weight: 600;">注册时间</th>
+          <th style="padding: 12px 16px; text-align: right; font-size: 13px; color: var(--ink-dim); font-weight: 600;">操作</th>
+        </tr>
+      </thead>
+      <tbody id="usersTableBody">
+        <tr>
+          <td colspan="7" style="padding: 40px; text-align: center; color: var(--ink-faint);">加载中...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Create/Edit User Modal -->
+<div id="userModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center;">
+  <div style="background: var(--panel-raised); border: 1px solid var(--line); border-radius: var(--r); padding: 32px; max-width: 500px; width: 90%;">
+    <h2 id="modalTitle" style="margin: 0 0 24px; font-size: 20px;">创建用户</h2>
+    <form id="userForm">
+      <input type="hidden" id="editUserId">
+
+      <div class="form-group">
+        <label for="formUsername" style="display: block; margin-bottom: 6px; color: var(--ink-dim); font-size: 13px;">用户名 *</label>
+        <input type="text" id="formUsername" required autocomplete="off" placeholder="输入用户名" style="width: 100%;">
+      </div>
+
+      <div class="form-group">
+        <label for="formEmail" style="display: block; margin-bottom: 6px; color: var(--ink-dim); font-size: 13px;">邮箱 *</label>
+        <input type="email" id="formEmail" required placeholder="user@example.com" style="width: 100%;">
+      </div>
+
+      <div class="form-group">
+        <label for="formPassword" style="display: block; margin-bottom: 6px; color: var(--ink-dim); font-size: 13px;">密码 <span id="passwordHint">(留空则保持原密码)</span></label>
+        <input type="password" id="formPassword" placeholder="至少6个字符" style="width: 100%;">
+      </div>
+
+      <div class="form-group">
+        <label for="formRole" style="display: block; margin-bottom: 6px; color: var(--ink-dim); font-size: 13px;">角色 *</label>
+        <select id="formRole" required style="width: 100%; background: var(--bg-deep); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); padding: 11px 13px;">
+          <option value="viewer">查看者 - 只读访问</option>
+          <option value="editor">编辑者 - 可上传和处理视频</option>
+          <option value="admin">管理员 - 完整权限</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="formIsActive" checked>
+          <span>账户激活</span>
+        </label>
+      </div>
+
+      <div id="errorMsg" class="error" style="display: none; margin-bottom: 16px; padding: 10px; background: rgba(208, 96, 82, 0.1); border: 1px solid rgba(208, 96, 82, 0.3); border-radius: 6px;"></div>
+
+      <div style="display: flex; gap: 12px; justify-content: flex-end;">
+        <button type="button" id="cancelBtn" class="btn btn-ghost">取消</button>
+        <button type="submit" class="btn btn-primary">保存用户</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div id="deleteModal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center;">
+  <div style="background: var(--panel-raised); border: 1px solid var(--line); border-radius: var(--r); padding: 32px; max-width: 400px; width: 90%;">
+    <h2 style="margin: 0 0 16px; font-size: 20px; color: var(--danger);">确认删除</h2>
+    <p style="color: var(--ink-dim); margin: 0 0 24px;">确定要删除用户 "<span id="deleteUserName"></span>" 吗？此操作将停用该账户。</p>
+    
+    <div style="display: flex; gap: 12px; justify-content: flex-end;">
+      <button id="cancelDeleteBtn" class="btn btn-ghost">取消</button>
+      <button id="confirmDeleteBtn" class="btn" style="background: var(--danger); color: white;">删除</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let users = [];
+let filteredUsers = [];
+let deleteUserId = null;
+
+// Load users on page load
+document.addEventListener('DOMContentLoaded', loadUsers);
+
+async function loadUsers() {
+  try {
+    const response = await fetch('/admin/users');
+    if (!response.ok) throw new Error('加载用户失败');
+
+    const data = await response.json();
+    users = data.users;
+    filteredUsers = [...users];
+    
+    updateStatistics();
+    renderUsersTable();
+  } catch (error) {
+    document.getElementById('usersTableBody').innerHTML = `
+      <tr><td colspan="7" style="padding: 40px; text-align: center; color: var(--danger);">错误: ${error.message}</td></tr>
+    `;
+  }
+}
+
+function updateStatistics() {
+  const total = users.length;
+  const active = users.filter(u => u.is_active).length;
+  const admins = users.filter(u => u.role === 'admin').length;
+  const inactive = total - active;
+
+  document.getElementById('totalUsers').textContent = total;
+  document.getElementById('activeUsers').textContent = active;
+  document.getElementById('adminUsers').textContent = admins;
+  document.getElementById('inactiveUsers').textContent = inactive;
+}
+
+function renderUsersTable() {
+  const tbody = document.getElementById('usersTableBody');
+
+  if (filteredUsers.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="padding: 40px; text-align: center; color: var(--ink-faint);">没有找到用户</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filteredUsers.map(user => `
+    <tr style="border-bottom: 1px solid var(--line-soft);">
+      <td style="padding: 12px 16px; font-family: var(--mono); font-size: 12px;">${user.id}</td>
+      <td style="padding: 12px 16px; font-weight: 600;">${escapeHtml(user.username)}</td>
+      <td style="padding: 12px 16px; color: var(--ink-dim);">${escapeHtml(user.email)}</td>
+      <td style="padding: 12px 16px;">
+        <span style="padding: 4px 10px; border-radius: 4px; background: ${getRoleColor(user.role)}20; color: ${getRoleColor(user.role)}; font-size: 12px; font-weight: 600;">
+          ${getRoleName(user.role)}
+        </span>
+      </td>
+      <td style="padding: 12px 16px;">
+        <span style="color: ${user.is_active ? 'var(--ok)' : 'var(--danger)'};">
+          ${user.is_active ? '✓ 活跃' : '✗ 非活跃'}
+        </span>
+      </td>
+      <td style="padding: 12px 16px; font-size: 12px; color: var(--ink-dim);">
+        ${formatDate(user.created_at)}
+      </td>
+      <td style="padding: 12px 16px; text-align: right;">
+        <button class="btn btn-ghost" onclick="editUser(${user.id})" style="padding: 6px 12px; font-size: 13px;">编辑</button>
+        <button class="btn btn-ghost" onclick="confirmDelete(${user.id}, '${escapeHtml(user.username)}')" style="padding: 6px 12px; font-size: 13px; color: var(--danger);">删除</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function getRoleName(role) {
+  switch(role) {
+    case 'admin': return '管理员';
+    case 'editor': return '编辑者';
+    case 'viewer': return '查看者';
+    default: return role;
+  }
+}
+
+function getRoleColor(role) {
+  switch(role) {
+    case 'admin': return '#d06052';
+    case 'editor': return '#e8a33d';
+    case 'viewer': return '#7fb069';
+    default: return '#9a978f';
+  }
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '-';
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
+}
+
+// Search and filter
+document.getElementById('searchInput').addEventListener('input', applyFilters);
+document.getElementById('roleFilter').addEventListener('change', applyFilters);
+document.getElementById('statusFilter').addEventListener('change', applyFilters);
+
+function applyFilters() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const roleFilter = document.getElementById('roleFilter').value;
+  const statusFilter = document.getElementById('statusFilter').value;
+
+  filteredUsers = users.filter(user => {
+    // Search filter
+    if (search && !user.username.toLowerCase().includes(search) && !user.email.toLowerCase().includes(search)) {
+      return false;
+    }
+    
+    // Role filter
+    if (roleFilter && user.role !== roleFilter) {
+      return false;
+    }
+    
+    // Status filter
+    if (statusFilter === 'active' && !user.is_active) {
+      return false;
+    }
+    if (statusFilter === 'inactive' && user.is_active) {
+      return false;
+    }
+    
+    return true;
+  });
+
+  renderUsersTable();
+}
+
+// Create user modal
+document.getElementById('createUserBtn').addEventListener('click', () => {
+  document.getElementById('modalTitle').textContent = '创建用户';
+  document.getElementById('editUserId').value = '';
+  document.getElementById('formUsername').value = '';
+  document.getElementById('formEmail').value = '';
+  document.getElementById('formPassword').value = '';
+  document.getElementById('formPassword').required = true;
+  document.getElementById('formRole').value = 'editor';
+  document.getElementById('formIsActive').checked = true;
+  document.getElementById('passwordHint').style.display = 'none';
+  document.getElementById('errorMsg').style.display = 'none';
+  document.getElementById('userModal').style.display = 'flex';
+});
+
+// Edit user
+function editUser(userId) {
+  const user = users.find(u => u.id === userId);
+  if (!user) return;
+
+  document.getElementById('modalTitle').textContent = '编辑用户';
+  document.getElementById('editUserId').value = userId;
+  document.getElementById('formUsername').value = user.username;
+  document.getElementById('formEmail').value = user.email;
+  document.getElementById('formPassword').value = '';
+  document.getElementById('formPassword').required = false;
+  document.getElementById('formRole').value = user.role;
+  document.getElementById('formIsActive').checked = user.is_active;
+  document.getElementById('passwordHint').style.display = 'inline';
+  document.getElementById('errorMsg').style.display = 'none';
+  document.getElementById('userModal').style.display = 'flex';
+}
+
+// Cancel modal
+document.getElementById('cancelBtn').addEventListener('click', () => {
+  document.getElementById('userModal').style.display = 'none';
+});
+
+// Save user (create or update)
+document.getElementById('userForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+
+  const userId = document.getElementById('editUserId').value;
+  const username = document.getElementById('formUsername').value.trim();
+  const email = document.getElementById('formEmail').value.trim();
+  const password = document.getElementById('formPassword').value;
+  const role = document.getElementById('formRole').value;
+  const isActive = document.getElementById('formIsActive').checked;
+  const errorMsg = document.getElementById('errorMsg');
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+
+  // Validation
+  if (!username || !email) {
+    errorMsg.textContent = '请填写所有必填字段';
+    errorMsg.style.display = 'block';
+    return;
+  }
+
+  if (!userId && !password) {
+    errorMsg.textContent = '创建新用户必须设置密码';
+    errorMsg.style.display = 'block';
+    return;
+  }
+
+  if (password && password.length < 6) {
+    errorMsg.textContent = '密码长度至少为6个字符';
+    errorMsg.style.display = 'block';
+    return;
+  }
+
+  errorMsg.style.display = 'none';
+  submitBtn.disabled = true;
+  submitBtn.textContent = '保存中...';
+
+  try {
+    const url = userId ? `/admin/users/${userId}` : '/auth/register';
+    const method = userId ? 'PUT' : 'POST';
+
+    const body = { username, email, role, is_active: isActive };
+    if (password) body.password = password;
+
+    const response = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || '保存失败');
+    }
+
+    // Success - close modal and reload
+    document.getElementById('userModal').style.display = 'none';
+    await loadUsers();
+    
+    // Show success message (optional)
+    alert(userId ? '用户更新成功！' : '用户创建成功！');
+  } catch (error) {
+    errorMsg.textContent = error.message;
+    errorMsg.style.display = 'block';
+    submitBtn.disabled = false;
+    submitBtn.textContent = '保存用户';
+  }
+});
+
+// Confirm delete
+function confirmDelete(userId, username) {
+  deleteUserId = userId;
+  document.getElementById('deleteUserName').textContent = username;
+  document.getElementById('deleteModal').style.display = 'flex';
+}
+
+// Cancel delete
+document.getElementById('cancelDeleteBtn').addEventListener('click', () => {
+  document.getElementById('deleteModal').style.display = 'none';
+  deleteUserId = null;
+});
+
+// Delete user
+document.getElementById('confirmDeleteBtn').addEventListener('click', async () => {
+  if (!deleteUserId) return;
+
+  try {
+    const response = await fetch(`/admin/users/${deleteUserId}`, {
+      method: 'DELETE'
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || '删除失败');
+    }
+
+    document.getElementById('deleteModal').style.display = 'none';
+    await loadUsers();
+    alert('用户已删除');
+  } catch (error) {
+    alert(`删除失败: ${error.message}`);
+  }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Login · video-cut{% endblock %}
+
+{% block topbar_meta %}{% endblock %}
+
+{% block content %}
+<div style="max-width: 420px; margin: 80px auto; padding: 0 20px;">
+  <div style="background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 32px;">
+    <h1 style="margin: 0 0 8px; font-size: 22px;">Sign In</h1>
+    <p style="color: var(--ink-dim); margin: 0 0 24px; font-size: 14px;">Enter your credentials to access the workspace.</p>
+
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="username" style="display: block; margin-bottom: 6px; color: var(--ink-dim); font-size: 13px;">Username</label>
+        <input type="text" id="username" name="username" required autocomplete="username" placeholder="Enter your username" style="width: 100%;">
+      </div>
+
+      <div class="form-group">
+        <label for="password" style="display: block; margin-bottom: 6px; color: var(--ink-dim); font-size: 13px;">Password</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Enter your password" style="width: 100%;">
+      </div>
+
+      <div id="errorMsg" class="error" style="display: none; margin-bottom: 16px; padding: 10px; background: rgba(208, 96, 82, 0.1); border: 1px solid rgba(208, 96, 82, 0.3); border-radius: 6px;"></div>
+
+      <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In</button>
+    </form>
+
+    <p class="hint" style="margin-top: 16px; text-align: center;">
+      Don't have an account? <a href="/register">Register here</a> (admin only)
+    </p>
+  </div>
+</div>
+
+<script>
+document.getElementById('loginForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+
+  const username = document.getElementById('username').value;
+  const password = document.getElementById('password').value;
+  const errorMsg = document.getElementById('errorMsg');
+  const submitBtn = e.target.querySelector('button[type="submit"]');
+
+  // Clear previous errors
+  errorMsg.style.display = 'none';
+  errorMsg.textContent = '';
+
+  // Disable button during request
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Signing in...';
+
+  try {
+    const response = await fetch('/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username, password })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Login failed');
+    }
+
+    const data = await response.json();
+
+    // Store token info (optional - can use localStorage or just rely on cookie)
+    localStorage.setItem('user_id', data.user_id);
+    localStorage.setItem('username', data.username);
+    localStorage.setItem('role', data.role);
+
+    // Redirect to home page
+    window.location.href = '/';
+  } catch (error) {
+    errorMsg.textContent = error.message;
+    errorMsg.style.display = 'block';
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Sign In';
+  }
+});
+</script>
+{% endblock %}

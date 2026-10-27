@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+
+{% block title %}智能高光剪辑 - 视频详情{% endblock %}
+
+{% block topbar_meta %}视频详情{% endblock %}
+
+{% block content %}
+<div class="container">
+  <!-- Video Info -->
+  <div class="video-info-card">
+    <h2 id="videoTitle">加载中...</h2>
+    <div class="video-meta">
+      <div class="meta-item">
+        <span class="meta-label">时长:</span>
+        <span class="meta-value" id="videoDuration">-</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">文件大小:</span>
+        <span class="meta-value" id="videoFileSize">-</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">状态:</span>
+        <span class="meta-value" id="videoStatus">-</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">创建时间:</span>
+        <span class="meta-value" id="videoCreatedAt">-</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Versions Section -->
+  <div id="versionsContainer">
+    <h3 class="section-title">生成版本</h3>
+    <div id="versionsList">加载中...</div>
+  </div>
+</div>
+
+<style>
+  .video-info-card {
+    background: var(--bg-panel);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .video-info-card h2 {
+    margin: 0 0 16px 0;
+    color: var(--ink);
+    font-size: 20px;
+  }
+
+  .video-meta {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+  }
+
+  .meta-item {
+    display: flex;
+    gap: 8px;
+  }
+
+  .meta-label {
+    color: var(--ink-dim);
+    font-weight: 500;
+  }
+
+  .meta-value {
+    color: var(--ink);
+  }
+
+  .section-title {
+    color: var(--ink);
+    font-size: 18px;
+    margin: 24px 0 16px 0;
+  }
+
+  .version-card {
+    background: var(--bg-panel);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+  }
+
+  .version-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+
+  .version-title {
+    font-weight: 600;
+    color: var(--ink);
+    font-size: 16px;
+  }
+
+  .version-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .badge-active {
+    background: #48bb78;
+    color: white;
+  }
+
+  .badge-inactive {
+    background: var(--bg-muted);
+    color: var(--ink-dim);
+  }
+
+  .clips-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+  }
+
+  .clips-table th {
+    background: rgba(102, 126, 234, 0.05);
+    padding: 10px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--ink-dim);
+  }
+
+  .clips-table td {
+    padding: 10px;
+    border-top: 1px solid var(--border);
+    color: var(--ink-dim);
+    font-size: 13px;
+  }
+
+  .clip-quote {
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .loading-text {
+    text-align: center;
+    padding: 40px;
+    color: var(--ink-dim);
+  }
+</style>
+
+<script>
+  const videoId = {{ video_id }};
+
+  async function loadVideoDetail() {
+    try {
+      const response = await fetch(`/api/video-tasks/${videoId}`);
+      if (!response.ok) throw new Error('Failed to load video detail');
+
+      const video = await response.json();
+      renderVideoInfo(video);
+      renderVersions(video.versions);
+    } catch (error) {
+      console.error('Error loading video detail:', error);
+      document.getElementById('versionsList').innerHTML =
+        '<div class="loading-text">加载失败，请刷新重试</div>';
+    }
+  }
+
+  function renderVideoInfo(video) {
+    document.getElementById('videoTitle').textContent = video.original_filename;
+    document.getElementById('videoDuration').textContent = video.duration ? formatDuration(video.duration) : '-';
+    document.getElementById('videoFileSize').textContent = video.file_size ? formatFileSize(video.file_size) : '-';
+    document.getElementById('videoStatus').textContent = getStatusText(video.status);
+    document.getElementById('videoCreatedAt').textContent = new Date(video.created_at).toLocaleString('zh-CN');
+  }
+
+  function renderVersions(versions) {
+    const container = document.getElementById('versionsList');
+
+    if (versions.length === 0) {
+      container.innerHTML = '<div class="loading-text">暂无生成版本</div>';
+      return;
+    }
+
+    container.innerHTML = versions.map(version => `
+      <div class="version-card">
+        <div class="version-header">
+          <div class="version-title">版本 ${version.version_number}</div>
+          <span class="version-badge ${version.is_active ? 'badge-active' : 'badge-inactive'}">
+            ${version.is_active ? '当前版本' : '历史版本'}
+          </span>
+        </div>
+        <div style="color: var(--ink-dim); font-size: 13px; margin-bottom: 8px;">
+          状态: ${version.status} | 片段数: ${version.highlight_count} | 创建时间: ${new Date(version.created_at).toLocaleString('zh-CN')}
+        </div>
+        
+        ${version.merged_video_path ? `
+          <div style="margin: 8px 0;">
+            <strong>合成视频:</strong> 
+            <a href="#" onclick="playMergedVideo('${version.merged_video_path.replace(/\\/g, '\\\\')}'); return false;">播放合成视频</a>
+          </div>
+        ` : ''}
+
+        ${version.clips.length > 0 ? `
+          <table class="clips-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>标题</th>
+                <th>时长</th>
+                <th>时间段</th>
+                <th>引用</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${version.clips.map((clip, idx) => `
+                <tr>
+                  <td>${idx + 1}</td>
+                  <td>${escapeHtml(clip.title)}</td>
+                  <td>${clip.duration.toFixed(1)}s</td>
+                  <td>${formatTime(clip.start_time)} - ${formatTime(clip.end_time)}</td>
+                  <td class="clip-quote">${escapeHtml(clip.quote || '')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : '<div style="padding: 12px; color: var(--ink-dim);">暂无剪辑片段</div>'}
+      </div>
+    `).join('');
+  }
+
+  function playMergedVideo(path) {
+    // Show video player modal
+    const modal = document.getElementById('videoPlayerModal');
+    const videoElement = document.getElementById('videoPlayer');
+    const videoTitle = document.getElementById('videoPlayerTitle');
+    
+    console.log('Original path from DB:', path);
+    
+    // Replace ALL backslashes with forward slashes (use global regex)
+    let videoUrl = path.replace(/\\/g, '/');
+    
+    console.log('After replacing backslashes:', videoUrl);
+    
+    // Ensure it starts with /
+    if (!videoUrl.startsWith('/')) {
+      videoUrl = '/' + videoUrl;
+    }
+    
+    console.log('Final URL:', videoUrl);
+    
+    videoElement.src = videoUrl;
+    videoTitle.textContent = '合成视频';
+    
+    modal.style.display = 'flex';
+    videoElement.play();
+  }
+
+  function closeVideoPlayer() {
+    const modal = document.getElementById('videoPlayerModal');
+    const videoElement = document.getElementById('videoPlayer');
+    
+    videoElement.pause();
+    videoElement.currentTime = 0;
+    modal.style.display = 'none';
+  }
+
+  function formatDuration(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  function formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  function formatFileSize(bytes) {
+    if (!bytes) return '-';
+    const gb = bytes / (1024 * 1024 * 1024);
+    if (gb >= 1) return `${gb.toFixed(2)} GB`;
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(2)} MB`;
+  }
+
+  function getStatusText(status) {
+    const statusMap = {
+      'uploaded': '已上传',
+      'processing': '处理中',
+      'ready': '就绪',
+      'failed': '失败',
+      'completed': '已完成'
+    };
+    return statusMap[status] || status;
+  }
+
+  function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // Initialize
+  document.addEventListener('DOMContentLoaded', function() {
+    loadVideoDetail();
+  });
+</script>
+
+<!-- Video Player Modal -->
+<div id="videoPlayerModal" class="modal" style="display: none;">
+  <div class="modal-content modal-video">
+    <div class="modal-header">
+      <h3 id="videoPlayerTitle">视频播放</h3>
+      <button onclick="closeVideoPlayer()" class="btn-close">&times;</button>
+    </div>
+    <div class="modal-body video-container">
+      <video id="videoPlayer" controls style="width: 100%; max-height: 70vh; background: #000;">
+        您的浏览器不支持视频播放
+      </video>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeVideoPlayer()" class="btn-cancel">关闭</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* Video Player Modal Styles */
+  .modal-video {
+    max-width: 900px;
+    width: 90%;
+  }
+
+  .video-container {
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+  }
+
+  video {
+    border-radius: 8px;
+  }
+</style>
+{% endblock %}

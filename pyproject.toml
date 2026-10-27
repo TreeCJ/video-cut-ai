@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "video-cut"
+version = "0.1.0"
+description = "Local CLI for extracting highlight clips from long videos"
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.12",
+    "python-dotenv>=1.0",
+    "httpx>=0.27",
+    "oss2>=2.18",
+    "rapidfuzz>=3.9",
+    "fastapi>=0.144.0",
+    "uvicorn>=0.54.0",
+    "jinja2>=3.1.6",
+    "python-multipart>=0.0.32",
+    "sqlalchemy>=2.0",
+    "pymysql>=1.1",
+    "psycopg2-binary>=2.9",
+    "passlib[bcrypt]>=1.7.4",
+    "PyJWT>=2.8.0",
+    "dashscope>=1.14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "playwright>=1.40",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/video_cut"]
+
+[project.scripts]
+video-cut = "video_cut.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
