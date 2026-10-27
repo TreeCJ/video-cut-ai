@@ -296,3 +296,10 @@ def register_auth_routes(app, templates: Jinja2Templates):
             "video_detail.html",
             {"video_id": video_id},
         )
+
+    @app.get("/settings", name="settings")
+    async def settings_page(request: Request, current_user: User = Depends(require_role("admin"))):
+        """System settings page (admin only)."""
+        from video_cut.web.settings import router as settings_router
+        # This route is handled by settings_router, but we register it here for the template
+        return templates.TemplateResponse(request, "settings.html", {})

@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+
+{% block title %}系统设置{% endblock %}
+
+{% block topbar_meta %}系统设置{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="settings-container">
+    <h1 class="page-title">系统设置</h1>
+    
+    <!-- Settings Form -->
+    <div class="settings-form">
+      
+      <!-- ASR Settings -->
+      <div class="settings-section">
+        <h2 class="section-title">🎤 语音识别 (ASR) 配置</h2>
+        <div class="form-group">
+          <label for="asrModel">ASR 模型</label>
+          <select id="asrModel" class="form-control">
+            <option value="paraformer-realtime-v2">Paraformer Realtime v2 (推荐)</option>
+            <option value="paraformer-v2">Paraformer v2</option>
+          </select>
+          <small class="form-hint">选择语音识别模型，推荐使用 Paraformer Realtime v2（无需OSS）</small>
+        </div>
+        
+        <div class="form-group">
+          <label for="asrApiKey">DashScope API Key</label>
+          <input type="password" id="asrApiKey" class="form-control" placeholder="输入您的 DashScope API Key">
+          <small class="form-hint">API Key 将保存在本地 .env 文件中</small>
+        </div>
+      </div>
+
+      <!-- LLM Settings -->
+      <div class="settings-section">
+        <h2 class="section-title">🧠 大语言模型 (LLM) 配置</h2>
+        <div class="form-group">
+          <label for="llmModel">LLM 模型</label>
+          <select id="llmModel" class="form-control">
+            <option value="qwen-max">Qwen-Max (推荐)</option>
+            <option value="qwen-plus">Qwen-Plus</option>
+            <option value="qwen-turbo">Qwen-Turbo</option>
+          </select>
+          <small class="form-hint">选择用于高光片段筛选的 LLM 模型</small>
+        </div>
+        
+        <div class="form-group">
+          <label for="llmApiKey">DashScope API Key</label>
+          <input type="password" id="llmApiKey" class="form-control" placeholder="输入您的 DashScope API Key">
+          <small class="form-hint">与 ASR 共用同一个 API Key</small>
+        </div>
+      </div>
+
+      <!-- VL Settings -->
+      <div class="settings-section">
+        <h2 class="section-title">👁️ 视觉语言模型 (VL) 配置</h2>
+        <div class="form-group">
+          <label for="vlModel">VL 模型</label>
+          <select id="vlModel" class="form-control">
+            <option value="qwen-vl-max">Qwen-VL-Max (推荐)</option>
+            <option value="qwen-vl-plus">Qwen-VL-Plus</option>
+          </select>
+          <small class="form-hint">选择用于场景匹配的视觉语言模型</small>
+        </div>
+        
+        <div class="form-group">
+          <label for="vlApiKey">DashScope API Key</label>
+          <input type="password" id="vlApiKey" class="form-control" placeholder="输入您的 DashScope API Key">
+        </div>
+      </div>
+
+      <!-- General Settings -->
+      <div class="settings-section">
+        <h2 class="section-title">⚙️ 通用配置</h2>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="maxUploadSize">最大上传文件大小 (GB)</label>
+            <input type="number" id="maxUploadSize" class="form-control" value="5" min="1" max="10">
+          </div>
+          
+          <div class="form-group">
+            <label for="defaultDuration">默认输出时长 (秒)</label>
+            <input type="number" id="defaultDuration" class="form-control" value="180" min="60" max="600">
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="form-actions">
+        <button onclick="saveSettings()" class="btn btn-primary">保存设置</button>
+        <button onclick="loadSettings()" class="btn btn-secondary">重置</button>
+        <button onclick="clearCache()" class="btn btn-danger">清理缓存</button>
+      </div>
+    </div>
+
+    <!-- Status Message -->
+    <div id="statusMessage" class="status-message" style="display: none;"></div>
+  </div>
+</div>
+
+<style>
+  .settings-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+
+  .page-title {
+    color: var(--ink);
+    font-size: 24px;
+    margin-bottom: 24px;
+  }
+
+  .settings-form {
+    background: var(--bg-panel);
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .settings-section {
+    margin-bottom: 32px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .settings-section:last-of-type {
+    border-bottom: none;
+  }
+
+  .section-title {
+    color: var(--ink);
+    font-size: 18px;
+    margin-bottom: 16px;
+  }
+
+  .form-group {
+    margin-bottom: 16px;
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .form-group label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--ink-dim);
+    font-weight: 500;
+  }
+
+  .form-control {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-input);
+    color: var(--ink);
+    font-size: 14px;
+  }
+
+  .form-control:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  }
+
+  .form-hint {
+    display: block;
+    margin-top: 4px;
+    color: var(--ink-dim);
+    font-size: 12px;
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+  }
+
+  .btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: #667eea;
+    color: white;
+  }
+
+  .btn-primary:hover {
+    background: #5a6fd6;
+  }
+
+  .btn-secondary {
+    background: var(--bg-muted);
+    color: var(--ink);
+  }
+
+  .btn-secondary:hover {
+    background: var(--border);
+  }
+
+  .btn-danger {
+    background: #d06052;
+    color: white;
+  }
+
+  .btn-danger:hover {
+    background: #b85044;
+  }
+
+  .status-message {
+    margin-top: 16px;
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+
+  .status-success {
+    background: rgba(72, 187, 120, 0.1);
+    border: 1px solid rgba(72, 187, 120, 0.3);
+    color: #48bb78;
+  }
+
+  .status-error {
+    background: rgba(208, 96, 82, 0.1);
+    border: 1px solid rgba(208, 96, 82, 0.3);
+    color: #d06052;
+  }
+</style>
+
+<script>
+  // Load settings on page load
+  document.addEventListener('DOMContentLoaded', function() {
+    loadSettings();
+  });
+
+  async function loadSettings() {
+    try {
+      const response = await fetch('/api/settings');
+      if (!response.ok) throw new Error('Failed to load settings');
+
+      const settings = await response.json();
+      
+      // Populate form fields
+      document.getElementById('asrModel').value = settings.asr_model || 'paraformer-realtime-v2';
+      document.getElementById('asrApiKey').value = settings.asr_api_key || '';
+      document.getElementById('llmModel').value = settings.llm_model || 'qwen-max';
+      document.getElementById('llmApiKey').value = settings.llm_api_key || '';
+      document.getElementById('vlModel').value = settings.vl_model || 'qwen-vl-max';
+      document.getElementById('vlApiKey').value = settings.vl_api_key || '';
+      document.getElementById('maxUploadSize').value = settings.max_upload_size_gb || 5;
+      document.getElementById('defaultDuration').value = settings.default_output_duration || 180;
+    } catch (error) {
+      console.error('Error loading settings:', error);
+      showStatus('加载设置失败: ' + error.message, 'error');
+    }
+  }
+
+  async function saveSettings() {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '保存中...';
+
+    try {
+      const settings = {
+        asr_model: document.getElementById('asrModel').value,
+        asr_api_key: document.getElementById('asrApiKey').value,
+        llm_model: document.getElementById('llmModel').value,
+        llm_api_key: document.getElementById('llmApiKey').value,
+        vl_model: document.getElementById('vlModel').value,
+        vl_api_key: document.getElementById('vlApiKey').value,
+        max_upload_size_gb: parseInt(document.getElementById('maxUploadSize').value),
+        default_output_duration: parseInt(document.getElementById('defaultDuration').value),
+      };
+
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
+
+      if (!response.ok) throw new Error('Failed to save settings');
+
+      showStatus('设置已保存成功！', 'success');
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      showStatus('保存失败: ' + error.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '保存设置';
+    }
+  }
+
+  async function clearCache() {
+    if (!confirm('确定要清理缓存文件吗？这将删除所有超过24小时的临时上传文件。')) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/settings/cache', { method: 'DELETE' });
+      if (!response.ok) throw new Error('Failed to clear cache');
+
+      const result = await response.json();
+      showStatus(result.message, 'success');
+    } catch (error) {
+      console.error('Error clearing cache:', error);
+      showStatus('清理失败: ' + error.message, 'error');
+    }
+  }
+
+  function showStatus(message, type) {
+    const statusEl = document.getElementById('statusMessage');
+    statusEl.textContent = message;
+    statusEl.className = `status-message status-${type}`;
+    statusEl.style.display = 'block';
+
+    setTimeout(() => {
+      statusEl.style.display = 'none';
+    }, 5000);
+  }
+</script>
+{% endblock %}
