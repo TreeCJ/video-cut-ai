@@ -18,6 +18,7 @@ from video_cut.asr import read_transcript
 from video_cut.audio import extract_audio
 from video_cut.config import ASR_CONFIG_KEYS_REQUIRED, LLM_CONFIG_KEYS, require_config
 from video_cut.cutting import Highlight
+from video_cut.db.models import Video, GenerationVersion
 from video_cut.llm import write_highlights
 from video_cut.transcribe import transcribe_audio
 from video_cut.web.draft import reset_draft_from_highlights
@@ -36,92 +37,62 @@ def _sync_highlights_to_db(
 ) -> None:
     """Sync highlights to database (called after writing to filesystem)."""
     try:
-        from sqlalchemy import create_engine
-        from sqlalchemy.orm import Session
+        from video_cut.db.database import get_db
+        from video_cut.web.video_service import (
+            create_video_from_upload,
+            create_generation_version,
+            create_highlights_from_analysis,
+        )
         
-        from video_cut.config import get_settings
-        from video_cut.db.models import Video, GenerationVersion, Highlight, ClipVersion
+        # Get database session
+        db = next(get_db())
         
-        settings = get_settings()
-        
-        # Get or create database connection
-        if not settings.database_url:
-            print("Warning: No database configured, skipping DB sync")
-            return
-        
-        engine = create_engine(settings.database_url)
-        
-        with Session(engine) as db:
+        try:
             # Find or create video record
+            source_filename = session.source_path.split('/')[-1]
             video = db.query(Video).filter(
-                Video.original_filename == session.source_path.split('/')[-1]
+                Video.original_filename == source_filename
             ).first()
             
             if not video:
-                # Create new video record
-                video = Video(
-                    project_id=1,  # Default project
-                    original_filename=session.source_path.split('/')[-1],
+                # Create new video record using the service
+                video = create_video_from_upload(
+                    db=db,
+                    original_filename=source_filename,
                     storage_path=session.source_path,
-                    duration=session.duration or 0,
-                    status="ready",
+                    file_size=0,  # Will be updated later if needed
                 )
-                db.add(video)
-                db.flush()  # Get the ID
             
             # Check if this version already exists
             existing_version = db.query(GenerationVersion).filter(
                 GenerationVersion.video_id == video.id,
-                GenerationVersion.merged_video_path.isnot(None),
             ).order_by(GenerationVersion.version_number.desc()).first()
             
             version_number = (existing_version.version_number + 1) if existing_version else 1
             
             # Create generation version
-            version = GenerationVersion(
+            version = create_generation_version(
+                db=db,
                 video_id=video.id,
                 version_number=version_number,
-                status="completed",
-                highlight_count=len(highlights),
-                is_active=True,
             )
-            db.add(version)
-            db.flush()
             
-            # Deactivate other versions
-            db.query(GenerationVersion).filter(
-                GenerationVersion.video_id == video.id,
-                GenerationVersion.id != version.id,
-            ).update({"is_active": False})
+            # Create highlights
+            create_highlights_from_analysis(
+                db=db,
+                video_id=video.id,
+                version_id=version.id,
+                highlights=highlights,
+            )
             
-            # Create highlights and clip versions
-            for idx, h in enumerate(highlights):
-                highlight = Highlight(
-                    video_id=video.id,
-                    title=h.get("title", ""),
-                    start_time=h.get("start_time", 0),
-                    end_time=h.get("end_time", 0),
-                    reason=h.get("reason", ""),
-                    quote=h.get("quote", ""),
-                    order_index=idx,
-                )
-                db.add(highlight)
-                db.flush()
-                
-                # Create clip version (file will be generated later)
-                clip = ClipVersion(
-                    generation_version_id=version.id,
-                    highlight_id=highlight.id,
-                    order_index=idx,
-                )
-                db.add(clip)
-            
-            # Update video's current version
-            video.current_version_id = version.id
-            video.total_versions = version_number
-            
+            # Update version status
+            version.status = "completed"
             db.commit()
-            print(f"✓ Synced {len(highlights)} highlights to database")
+            
+            print(f"✓ Synced {len(highlights)} highlights to database for video '{video.original_filename}' v{version.version_number}")
+            
+        finally:
+            db.close()
             
     except Exception as e:
         print(f"Warning: Failed to sync highlights to DB: {e}")

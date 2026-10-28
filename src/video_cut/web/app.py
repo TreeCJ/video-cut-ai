@@ -35,6 +35,7 @@ from video_cut.audio import probe_duration
 from video_cut.web.auth import router as auth_router, register_auth_routes
 from video_cut.web.clip_management import router as clip_router
 from video_cut.web.settings import router as settings_router
+from video_cut.web.video_service import create_video_from_upload
 from video_cut.web.cut import register_cut_artifact_routes, register_cut_routes
 from video_cut.web.upload import (
     get_upload_dir,
@@ -277,12 +278,15 @@ def _register_library_routes(
         request: Request,
         video_file: Optional[UploadFile] = None,
         video_path: str = Form(None),
+        db: Session = Depends(get_db),
     ) -> RedirectResponse | HTMLResponse:
         """Create workflow from uploaded file or local path.
 
         Priority: uploaded file > local path
         """
         source_path = None
+        original_filename = None
+        file_size = 0
 
         # Handle file upload
         if video_file and video_file.filename:
@@ -292,6 +296,16 @@ def _register_library_routes(
                     upload_dir, video_file
                 )
                 source_path = str(saved_path)
+                original_filename = video_file.filename
+                
+                # Create video record in database
+                video = create_video_from_upload(
+                    db=db,
+                    original_filename=original_filename,
+                    storage_path=source_path,
+                    file_size=file_size,
+                )
+                
             except ValueError as error:
                 entries = _scan_library(output_dir)
                 return templates.TemplateResponse(
@@ -318,6 +332,16 @@ def _register_library_routes(
                     status_code=422,
                 )
             source_path = str(source)
+            original_filename = source.name
+            file_size = source.stat().st_size
+            
+            # Create video record for local path too
+            video = create_video_from_upload(
+                db=db,
+                original_filename=original_filename,
+                storage_path=source_path,
+                file_size=file_size,
+            )
         else:
             entries = _scan_library(output_dir)
             return templates.TemplateResponse(
