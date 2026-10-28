@@ -5,6 +5,22 @@ import sys
 import logging
 from pathlib import Path
 
+# Suppress asyncio connection lost errors on Windows (must be done early)
+if sys.platform == 'win32':
+    try:
+        from asyncio.proactor_events import _ProactorBasePipeTransport
+        _original_call = _ProactorBasePipeTransport._call_connection_lost
+        
+        def _patched_call(self, exc):
+            try:
+                _original_call(self, exc)
+            except (ConnectionResetError, BrokenPipeError, OSError) as e:
+                logging.debug(f"Client disconnected: {e}")
+        
+        _ProactorBasePipeTransport._call_connection_lost = _patched_call
+    except Exception:
+        pass
+
 # Configure logging to show important messages but filter noisy asyncio errors
 logging.basicConfig(
     level=logging.INFO,
