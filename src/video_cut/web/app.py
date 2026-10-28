@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, Form, Request, UploadFile
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import (
     FileResponse,
