@@ -13,9 +13,18 @@ from video_cut.db.models import Video, GenerationVersion, Highlight
 from video_cut.audio import probe_duration
 
 
-def sync_video_directory(output_dir: Path):
+def sync_video_directory(output_dir: Path, use_mysql=False):
     """Scan output directory and sync video tasks to database."""
-    db = SessionLocal()
+    if use_mysql:
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        
+        engine = create_engine('mysql+pymysql://root:gTX-dS0Ak%23Ng@10.96.200.24:3310/video_cut')
+        SessionLocal = sessionmaker(bind=engine)
+        db = SessionLocal()
+    else:
+        from video_cut.db.database import SessionLocal
+        db = SessionLocal()
     
     try:
         synced_count = 0
@@ -141,6 +150,12 @@ def sync_video_directory(output_dir: Path):
 
 
 if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Sync videos to database')
+    parser.add_argument('--mysql', action='store_true', help='Use MySQL instead of SQLite')
+    args = parser.parse_args()
+    
     output_dir = Path("output")
     
     if not output_dir.exists():
@@ -148,4 +163,5 @@ if __name__ == "__main__":
         sys.exit(1)
     
     print(f"Scanning output directory: {output_dir}")
-    sync_video_directory(output_dir)
+    print(f"Using {'MySQL' if args.mysql else 'SQLite'} database")
+    sync_video_directory(output_dir, use_mysql=args.mysql)

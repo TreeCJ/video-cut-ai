@@ -39,6 +39,7 @@ def create_video_from_upload(
     
     # Create video record
     video = Video(
+        project_id=1,  # Default project
         original_filename=original_filename,
         storage_path=storage_path,
         duration=duration,
