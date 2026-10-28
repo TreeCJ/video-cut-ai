@@ -32,6 +32,7 @@ from fastapi.templating import Jinja2Templates
 from video_cut import paths
 from video_cut.asr import read_transcript
 from video_cut.audio import probe_duration
+from video_cut.db.database import get_db
 from video_cut.web.auth import router as auth_router, register_auth_routes
 from video_cut.web.clip_management import router as clip_router
 from video_cut.web.settings import router as settings_router
