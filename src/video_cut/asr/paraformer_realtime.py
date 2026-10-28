@@ -195,24 +195,69 @@ class ParaformerRealtimeEngine:
         # Create temporary WAV file
         wav_path = audio_path.with_suffix(".wav")
         
-        # Use ffmpeg to convert
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-i", str(audio_path),
-                "-ac", "1",  # mono
-                "-ar", str(self._sample_rate),  # 16kHz
-                "-acodec", "pcm_s16le",  # 16-bit PCM
-                str(wav_path),
-            ],
-            check=True,
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        
-        return wav_path
+        # Use ffmpeg to convert - with better error handling
+        try:
+            result = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i", str(audio_path),
+                    "-ac", "1",  # mono
+                    "-ar", str(self._sample_rate),  # 16kHz
+                    "-acodec", "pcm_s16le",  # 16-bit PCM
+                    str(wav_path),
+                ],
+                check=False,  # Don't raise exception immediately
+                capture_output=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            
+            # Check if conversion succeeded
+            if result.returncode != 0:
+                error_msg = result.stderr or "Unknown error"
+                print(f"FFmpeg conversion failed:")
+                print(f"  Return code: {result.returncode}")
+                print(f"  Error: {error_msg}")
+                print(f"  Input file: {audio_path}")
+                print(f"  Input exists: {audio_path.exists()}")
+                
+                # Try alternative conversion without pcm_s16le
+                print("Retrying with alternative codec...")
+                result2 = subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-i", str(audio_path),
+                        "-ac", "1",  # mono
+                        "-ar", str(self._sample_rate),  # 16kHz
+                        str(wav_path),  # Let ffmpeg choose codec
+                    ],
+                    check=False,
+                    capture_output=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                
+                if result2.returncode != 0:
+                    raise RuntimeError(
+                        f"FFmpeg conversion failed with both methods. "
+                        f"Original error: {error_msg}"
+                    )
+            
+            # Verify output file was created
+            if not wav_path.exists():
+                raise RuntimeError(f"WAV file was not created at {wav_path}")
+            
+            print(f"✓ Converted {audio_path.name} to WAV ({wav_path.stat().st_size} bytes)")
+            return wav_path
+            
+        except subprocess.SubprocessError as e:
+            print(f"Error during audio conversion: {e}")
+            raise
+        except Exception as e:
+            print(f"Unexpected error during audio conversion: {e}")
+            raise
 
     def _stream_wav(self, recognition: Recognition, wav_path: Path) -> None:
         """Stream WAV audio file to the recognition service."""
